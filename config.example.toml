@@ -15,7 +15,7 @@ title_seconds = 3.0
 outro_seconds = 4.5
 crossfade_seconds = 0.45
 max_photos = 14             # ~45s total at defaults
-zoom = 1.12                 # 1.0 disables the Ken Burns motion
+zoom = 1.0                  # 1.0 = still photos (no shimmer). 1.04 gentle, 1.12 strong.
 fps = 30
 captions = "auto"           # "auto" uses photo captions, "off" hides the bar
 video_bitrate = "8M"

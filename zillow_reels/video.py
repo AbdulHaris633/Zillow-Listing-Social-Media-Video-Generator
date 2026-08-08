@@ -110,12 +110,22 @@ class PhotoSegment(Segment):
 class Timeline:
     """Segments laid end to end, overlapping by `crossfade`."""
 
-    def __init__(self, segments: list[Segment], crossfade: float, size: tuple[int, int]):
+    def __init__(self, segments: list[Segment], crossfade: float, size: tuple[int, int], fps: int = 30):
         self.segments = segments
         self.size = size
+        self.fps = fps
         # Never let a crossfade eat more than a third of its shortest neighbour.
         shortest = min((s.duration for s in segments), default=1.0)
-        self.crossfade = max(0.0, min(crossfade, shortest / 3))
+        crossfade = max(0.0, min(crossfade, shortest / 3))
+
+        # Snap every boundary to a whole frame. At 30fps a 0.45s crossfade is
+        # 13.5 frames, so segment starts land on half-frames (2.15s = frame
+        # 64.5). The dissolve is then sampled at a different sub-frame offset
+        # each time and its final step is a fraction of the others, which shows
+        # up as a jolt at every transition.
+        self.crossfade = max(round(crossfade * fps), 0) / fps
+        for segment in segments:
+            segment.duration = max(round(segment.duration * fps), 1) / fps
 
         self.starts: list[float] = []
         cursor = 0.0
@@ -144,6 +154,10 @@ class Timeline:
         outgoing, out_local = active[0]
         incoming, in_local = active[1]
         alpha = min(max(in_local / self.crossfade, 0.0), 1.0)
+        # Ease the dissolve. A linear ramp reaches full speed on its very first
+        # frame and stops dead on its last, and those velocity steps read as a
+        # pop at both ends; smoothstep starts and finishes at zero rate.
+        alpha = alpha * alpha * (3 - 2 * alpha)
         a = outgoing.frame(out_local).astype(np.float32)
         b = incoming.frame(in_local).astype(np.float32)
         return (a * (1.0 - alpha) + b * alpha).astype(np.uint8)
@@ -256,7 +270,7 @@ def build_video(
         StillSegment(np.asarray(render_outro_card(listing, cfg, hero), dtype=np.uint8), cfg.outro_seconds)
     )
 
-    timeline = Timeline(segments, cfg.crossfade_seconds, cfg.size)
+    timeline = Timeline(segments, cfg.crossfade_seconds, cfg.size, cfg.fps)
     clip = mpcompat.make_video_clip(timeline.frame, timeline.duration)
 
     built = _build_audio(cfg, timeline.duration)

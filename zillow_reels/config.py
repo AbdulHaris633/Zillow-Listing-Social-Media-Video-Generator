@@ -57,8 +57,12 @@ class Config:
     max_photos: int = 14        # photos used in the video
     max_downloads: int = 0      # photos saved to disk / Drive; 0 = the whole gallery
 
-    # Motion. 1.0 disables the Ken Burns pan/zoom entirely.
-    zoom: float = 1.12
+    # Ken Burns pan/zoom. Off by default: listing photos are dense with
+    # high-frequency detail (siding, brick, shingles, grass) that crawls when
+    # panned, and a 3:2 photo cropped to 9:16 has to be enlarged to fill the
+    # frame, which magnifies the crawl. A still photo cannot shimmer at all.
+    # Raise it (1.04 is gentle, 1.12 strong) if you want the movement back.
+    zoom: float = 1.0
 
     # Brand.
     accent: str = "#E8B44A"

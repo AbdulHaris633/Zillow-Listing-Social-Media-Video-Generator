@@ -290,13 +290,33 @@ without caption bars. Of the listings tested, some had room grouping and some ha
 | `disclaimer` | — | Small print on the outro (licence line, etc.) |
 | `photo_seconds` | `2.6` | Per photo |
 | `max_photos` | `14` | ≈45 s total at defaults |
-| `zoom` | `1.12` | Ken Burns pan/zoom; `1.0` disables it |
+| `zoom` | `1.0` | Ken Burns pan/zoom. Off by default — see below |
+| `crossfade_seconds` | `0.45` | Dissolve length; `0` gives hard cuts |
 | `captions` | `auto` | `off` hides the caption bar |
 | `music_path` | — | Looped and faded to length at `music_volume` (0.14) |
 | `drive_parent_folder_id` | — | Create listing folders inside an existing Drive folder |
 
 Fonts auto-detect from the system (Arial / Helvetica / DejaVu); set `font_bold` and
 `font_regular` to use a brand typeface.
+
+### On the Ken Burns motion
+
+It ships **off**. Listing photos are dense with high-frequency detail — siding, brick,
+shingles, grass — and a 3:2 photo cropped to 9:16 has to be enlarged to fill the frame, which
+magnifies that detail. Panning across it makes the texture crawl between frames, which reads
+as the picture shaking. A still photo cannot shimmer at all.
+
+```bash
+./reel "<url>" --zoom 1.04       # gentle drift
+./reel "<url>" --zoom 1.12       # strong, the classic Ken Burns look
+./reel "<url>" --crossfade 0     # hard cuts instead of dissolves
+```
+
+Two related fixes are baked in regardless of the setting. Segment boundaries are snapped to
+whole frames — at 30fps a 0.45s crossfade is 13.5 frames, which put every transition on a
+half-frame and gave each dissolve a half-speed final step — and the dissolve is eased rather
+than linear, since a linear ramp reaches full speed on its first frame and stops dead on its
+last, popping at both ends.
 
 ---
 

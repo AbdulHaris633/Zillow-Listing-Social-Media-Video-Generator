@@ -47,6 +47,10 @@ def _common_args(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--max-downloads", type=int,
                         help="cap how many photos are saved to disk/Drive (default: the whole gallery)")
     parser.add_argument("--photo-seconds", type=float, help="seconds per photo")
+    parser.add_argument("--zoom", type=float,
+                        help="Ken Burns motion; 1.0 = still (default), 1.04 gentle, 1.12 strong")
+    parser.add_argument("--crossfade", type=float,
+                        help="dissolve length in seconds; 0 = hard cuts")
     parser.add_argument("--music", help="background music file (mp3/m4a/wav)")
     parser.add_argument("--logo", help="PNG logo overlaid on the title and outro cards")
     parser.add_argument("--captions", choices=["auto", "off"], help="per-photo caption bars")
@@ -59,6 +63,8 @@ def _config_from_args(args: argparse.Namespace) -> Config:
         ("max_photos", "max_photos"),
         ("max_downloads", "max_downloads"),
         ("photo_seconds", "photo_seconds"),
+        ("zoom", "zoom"),
+        ("crossfade", "crossfade_seconds"),
         ("music", "music_path"),
         ("logo", "logo_path"),
         ("captions", "captions"),
