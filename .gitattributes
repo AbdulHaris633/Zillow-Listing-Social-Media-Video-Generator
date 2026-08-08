@@ -1,0 +1,13 @@
+# cmd.exe mis-parses LF-only batch files (labels and goto in particular),
+# while a CRLF shebang breaks the bash wrapper. Pin both explicitly rather
+# than leaving it to each contributor's core.autocrlf setting.
+*.cmd  text eol=crlf
+*.bat  text eol=crlf
+reel   text eol=lf
+*.py   text eol=lf
+*.sh   text eol=lf
+
+# Binary — never touch.
+*.jpg  binary
+*.png  binary
+*.mp4  binary
