@@ -1,0 +1,16 @@
+requests>=2.31
+beautifulsoup4>=4.12
+lxml>=5.0
+Pillow>=10.2
+numpy>=1.26
+moviepy>=2.0
+
+google-api-python-client>=2.120
+google-auth-oauthlib>=1.2
+google-auth-httplib2>=0.2
+
+# Python 3.10 only (3.11+ has tomllib in the stdlib):
+# tomli>=2.0
+
+# Optional headless-browser fetch backend, used by --fetch browser:
+# playwright>=1.44   (then: playwright install chromium)

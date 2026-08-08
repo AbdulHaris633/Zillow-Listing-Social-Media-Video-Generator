@@ -1,0 +1,39 @@
+# Copy to config.toml (gitignored) and edit. Every value is optional.
+
+[branding]
+accent = "#E8B44A"          # pills, dividers, call-to-action
+background = "#12151C"
+text = "#FFFFFF"
+muted = "#B9C0CC"
+logo_path = ""              # PNG with transparency, centred at the card footer
+cta_text = "DM for a private showing"
+disclaimer = ""             # e.g. brokerage licence line, small print on the outro
+
+[video]
+photo_seconds = 2.6         # per photo
+title_seconds = 3.0
+outro_seconds = 4.5
+crossfade_seconds = 0.45
+max_photos = 14             # ~45s total at defaults
+zoom = 1.12                 # 1.0 disables the Ken Burns motion
+fps = 30
+captions = "auto"           # "auto" uses photo captions, "off" hides the bar
+video_bitrate = "8M"
+video_preset = "medium"     # ffmpeg x264 preset; "veryfast" to trade size for speed
+
+[audio]
+music_path = ""             # mp3/m4a/wav, looped and faded to length
+music_volume = 0.14
+music_fade_seconds = 1.5
+
+[drive]
+# Leave blank to use ~/.config/zillow-reels/client_secret.json
+drive_client_secrets = ""
+# Optional: create listing folders inside an existing Drive folder.
+# Copy the ID from the folder URL: drive.google.com/drive/folders/<ID>
+drive_parent_folder_id = ""
+
+[fonts]
+# Leave blank to auto-detect a system font (Arial/Helvetica/DejaVu).
+font_bold = ""
+font_regular = ""

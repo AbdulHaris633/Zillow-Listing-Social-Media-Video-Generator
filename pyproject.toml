@@ -1,0 +1,30 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "zillow-reels"
+version = "1.0.0"
+description = "Turn a Zillow listing into a vertical social video, filed in Google Drive."
+requires-python = ">=3.10"
+dependencies = [
+    "requests>=2.31",
+    "beautifulsoup4>=4.12",
+    "lxml>=5.0",
+    "Pillow>=10.2",
+    "numpy>=1.26",
+    "moviepy>=2.0",
+    "google-api-python-client>=2.120",
+    "google-auth-oauthlib>=1.2",
+    "google-auth-httplib2>=0.2",
+    "tomli>=2.0; python_version < '3.11'",
+]
+
+[project.optional-dependencies]
+browser = ["playwright>=1.44"]
+
+[project.scripts]
+zillow-reels = "zillow_reels.cli:main"
+
+[tool.setuptools]
+packages = ["zillow_reels"]
