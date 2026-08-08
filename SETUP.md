@@ -2,6 +2,10 @@
 
 Start to finish: about 15 minutes, most of it waiting on Google Cloud Console.
 
+Works on **macOS, Windows and Linux**. Every command below is given in both forms —
+macOS/Linux first, then Windows. On Windows use **PowerShell** or **Command Prompt**; the
+`reel.cmd` wrapper works in both.
+
 - [1. Install](#1-install)
 - [2. Google Drive (optional)](#2-google-drive-optional)
 - [3. Zillow access](#3-zillow-access)
@@ -17,6 +21,8 @@ Start to finish: about 15 minutes, most of it waiting on Google Cloud Console.
 Requires **Python 3.10+**. ffmpeg arrives bundled with `imageio-ffmpeg` — there is nothing
 separate to install.
 
+**macOS / Linux**
+
 ```bash
 git clone https://github.com/AbdulHaris633/Zillow-Listing-Social-Media-Video-Generator.git
 cd Zillow-Listing-Social-Media-Video-Generator
@@ -24,21 +30,41 @@ python3 -m venv .venv
 .venv/bin/pip install -r requirements.txt
 ```
 
-Check it works:
+**Windows**
+
+```bat
+git clone https://github.com/AbdulHaris633/Zillow-Listing-Social-Media-Video-Generator.git
+cd Zillow-Listing-Social-Media-Video-Generator
+py -m venv .venv
+.venv\Scripts\pip install -r requirements.txt
+```
+
+If `py` is not recognised, install Python from [python.org](https://www.python.org/downloads/)
+and tick **"Add python.exe to PATH"** during setup. The Microsoft Store build works too.
+
+Check it works — 33 tests, no network needed:
 
 ```bash
-.venv/bin/python -m unittest discover tests    # 33 tests, no network needed
+.venv/bin/python -m unittest discover tests      # macOS / Linux
+.venv\Scripts\python -m unittest discover tests  # Windows
 ```
 
 ### Optional extras
 
-```bash
-# Real-browser fetching. Strongly recommended — it is the only reliably working
-# path past Zillow's bot protection.
-.venv/bin/pip install playwright && .venv/bin/playwright install chromium
+Real-browser fetching is strongly recommended — it is the only reliably working path past
+Zillow's bot protection.
 
-# Chrome TLS impersonation for the plain-HTTP backend.
-.venv/bin/pip install curl_cffi
+```bash
+# macOS / Linux
+.venv/bin/pip install playwright && .venv/bin/playwright install chromium
+.venv/bin/pip install curl_cffi          # Chrome TLS impersonation, optional
+```
+
+```bat
+:: Windows
+.venv\Scripts\pip install playwright
+.venv\Scripts\playwright install chromium
+.venv\Scripts\pip install curl_cffi
 ```
 
 You can render videos with neither of these, using the manual template. See
@@ -73,16 +99,31 @@ few minutes and is free.
 
 ### Install it
 
+**macOS / Linux**
+
 ```bash
 mkdir -p ~/.config/zillow-reels && chmod 700 ~/.config/zillow-reels
 mv ~/Downloads/client_secret_*.json ~/.config/zillow-reels/client_secret.json
 chmod 600 ~/.config/zillow-reels/client_secret.json
 ```
 
+**Windows** (PowerShell)
+
+```powershell
+mkdir "$env:USERPROFILE\.config\zillow-reels" -Force
+Move-Item "$env:USERPROFILE\Downloads\client_secret_*.json" `
+          "$env:USERPROFILE\.config\zillow-reels\client_secret.json"
+```
+
+The folder is `C:\Users\<you>\.config\zillow-reels` — the same layout on every platform.
+Windows has no `chmod`; the file is protected by your user profile's ACLs instead, so keep it
+out of shared or synced folders.
+
 ### Authorise
 
 ```bash
-.venv/bin/python -m zillow_reels auth
+.venv/bin/python -m zillow_reels auth        # macOS / Linux
+.venv\Scripts\python -m zillow_reels auth    # Windows
 ```
 
 A browser opens; approve the request. On the "Google hasn't verified this app" screen choose
@@ -118,7 +159,11 @@ not settle it. What reliably works is clearing the check yourself once and reusi
 **First run** — a real browser opens and you press & hold for ~6 seconds:
 
 ```bash
-./reel "https://www.zillow.com/homedetails/…/12345678_zpid/"
+./reel "https://www.zillow.com/homedetails/…/12345678_zpid/"    # macOS / Linux
+```
+
+```bat
+reel "https://www.zillow.com/homedetails/…/12345678_zpid/"      :: Windows
 ```
 
 The wrapper detects the block, opens the window, waits for you, then carries on to the video
@@ -136,8 +181,13 @@ first behaviour their detection looks for.
 Two fallbacks need no setup whatsoever:
 
 ```bash
-./reel <url> --from-html saved-page.html   # Cmd-S the listing in your own browser
+./reel <url> --from-html saved-page.html   # macOS: Cmd-S the listing in your browser
 ./reel --manual listing.json               # type the details in
+```
+
+```bat
+reel <url> --from-html saved-page.html     :: Windows: Ctrl-S the listing in your browser
+reel --manual listing.json
 ```
 
 ### For production use
@@ -153,7 +203,8 @@ brokerage, not to whoever downloads them.
 ## 4. Branding
 
 ```bash
-cp config.example.toml config.toml
+cp config.example.toml config.toml           # macOS / Linux
+copy config.example.toml config.toml         :: Windows
 ```
 
 `config.toml` is gitignored. The settings worth changing first:
@@ -176,7 +227,8 @@ brand typeface.
 ## 5. Verify
 
 ```bash
-./reel "https://www.zillow.com/homedetails/…/12345678_zpid/"
+./reel "https://www.zillow.com/homedetails/…/12345678_zpid/"    # macOS / Linux
+reel "https://www.zillow.com/homedetails/…/12345678_zpid/"      :: Windows
 ```
 
 Expected: a review table you accept with Enter, then
@@ -250,8 +302,38 @@ No system TrueType font was found, so Pillow fell back to its bitmap default. Se
 
 ### `zillow-reels: command not found`
 
-Use `./reel` or `.venv/bin/python -m zillow_reels`. Installing with
-`.venv/bin/pip install -e .` also puts a `zillow-reels` entry point inside the venv.
+Use the wrapper, or call the module through the venv's Python:
+
+```bash
+./reel …                                  # macOS / Linux
+.venv/bin/python -m zillow_reels …
+```
+```bat
+reel …                                    :: Windows - no "./" prefix
+.venv\Scripts\python -m zillow_reels …
+```
+
+Installing with `pip install -e .` also puts a `zillow-reels` entry point inside the venv.
+
+### Windows: `'.' is not recognized` or `'./reel' is not recognized`
+
+`./reel` is the macOS/Linux form. On Windows type **`reel`** with no `./` prefix — that runs
+`reel.cmd`. If you are in PowerShell and it still isn't found, use `.\reel.cmd`.
+
+### Windows: `'py' is not recognized`
+
+Python is not on PATH. Reinstall from [python.org](https://www.python.org/downloads/) with
+**"Add python.exe to PATH"** ticked, or substitute `python` for `py`.
+
+### Windows: the contact sheet (`s`) doesn't open
+
+Fixed in current versions — an older build tried to spawn `start` as a program, which is a
+`cmd` builtin rather than an executable. Pull the latest.
+
+### Windows: `--browser-channel chrome` fails
+
+Google Chrome isn't installed, or Playwright can't find it. Either install Chrome, or drop
+the flag to use Playwright's bundled Chromium (which is blocked more often).
 
 ---
 
@@ -259,11 +341,20 @@ Use `./reel` or `.venv/bin/python -m zillow_reels`. Installing with
 
 None of these are in the repository, and all are gitignored by name.
 
-| What | Path | Notes |
+| What | macOS / Linux | Windows |
 |---|---|---|
-| Google OAuth client | `~/.config/zillow-reels/client_secret.json` | mode 600. Identifies the app; harmless alone |
-| Google access token | `~/.config/zillow-reels/token.json` | mode 600. **The sensitive one** — uploads as you, limited to `drive.file` |
-| Zillow session | `~/.zillow-profile/` | A Chrome profile, ~100 MB. Delete freely; you redo the challenge once |
+| Google OAuth client | `~/.config/zillow-reels/client_secret.json` | `%USERPROFILE%\.config\zillow-reels\client_secret.json` |
+| Google access token | `~/.config/zillow-reels/token.json` | `%USERPROFILE%\.config\zillow-reels\token.json` |
+| Zillow session | `~/.zillow-profile/` | `%USERPROFILE%\.zillow-profile\` |
+
+The **access token** is the sensitive one — it uploads as you, though only within the
+`drive.file` scope. The OAuth client is harmless on its own. The Zillow session is just a
+cookie; delete it freely and you redo the challenge once.
+
+On macOS and Linux both files are mode 600. Windows has no POSIX modes, so they rely on your
+user profile's ACLs — keep them out of shared or cloud-synced folders.
+
+Override the location on any platform with the `ZILLOW_REELS_HOME` environment variable.
 
 Revoke Drive access any time at
 [myaccount.google.com/permissions](https://myaccount.google.com/permissions).

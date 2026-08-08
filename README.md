@@ -89,14 +89,15 @@ MLS images are typically licensed to the listing brokerage, not to whoever downl
 
 ## Setup
 
-**Full instructions, including Google Drive OAuth and troubleshooting: [SETUP.md](SETUP.md).**
+**Full instructions for macOS, Windows and Linux — including Google Drive OAuth and
+troubleshooting — are in [SETUP.md](SETUP.md).**
 
 Requires Python 3.10+. ffmpeg comes bundled via `imageio-ffmpeg`; no separate install.
 
 ```bash
 git clone <repo> && cd zillow-reels
-python3 -m venv .venv && source .venv/bin/activate
-pip install -r requirements.txt
+python3 -m venv .venv && .venv/bin/pip install -r requirements.txt      # macOS / Linux
+py -m venv .venv && .venv\Scripts\pip install -r requirements.txt       # Windows
 ```
 
 Optional extras:

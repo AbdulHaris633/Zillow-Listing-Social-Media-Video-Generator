@@ -140,14 +140,20 @@ def build_contact_sheet(
 
 def open_file(path: str | Path) -> None:
     """Open a file in the OS viewer; silently do nothing if that's not possible."""
+    import os
     import subprocess
     import sys as _sys
 
-    opener = {"darwin": "open", "win32": "start"}.get(_sys.platform, "xdg-open")
     try:
+        if _sys.platform == "win32":
+            # `start` is a cmd.exe builtin, not an executable, so spawning it
+            # as a process fails outright. os.startfile is the actual API.
+            os.startfile(str(path))  # type: ignore[attr-defined]  # noqa: S606
+            return
+        opener = "open" if _sys.platform == "darwin" else "xdg-open"
         subprocess.run([opener, str(path)], check=False,
                        stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-    except Exception:  # noqa: BLE001
+    except Exception:  # noqa: BLE001 - viewing is a convenience, never required
         pass
 
 
