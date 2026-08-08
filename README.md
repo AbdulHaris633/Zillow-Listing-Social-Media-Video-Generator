@@ -89,6 +89,8 @@ MLS images are typically licensed to the listing brokerage, not to whoever downl
 
 ## Setup
 
+**Full instructions, including Google Drive OAuth and troubleshooting: [SETUP.md](SETUP.md).**
+
 Requires Python 3.10+. ffmpeg comes bundled via `imageio-ffmpeg`; no separate install.
 
 ```bash
