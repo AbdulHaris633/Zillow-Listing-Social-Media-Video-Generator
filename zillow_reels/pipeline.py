@@ -64,10 +64,17 @@ class RunResult:
         return self.status == "ok"
 
 
-def acquire(options: RunOptions, cfg: Config) -> tuple[Listing, list[str]]:
-    """Get the best listing we can from the sources available."""
+def acquire(options: RunOptions, cfg: Config) -> tuple[Listing, list[str], bool]:
+    """Get the best listing we can from the sources available.
+
+    The third return value is True when Zillow served a challenge and no other
+    source made up for it — the caller needs it to tell "the scrape came back
+    thin" (worth reviewing) from "the scrape never happened" (worth retrying
+    with a visible browser).
+    """
     messages: list[str] = []
     listing = Listing(url=options.url)
+    blocked = False
 
     if options.url or options.html_file:
         result = scrape_mod.scrape(
@@ -82,7 +89,8 @@ def acquire(options: RunOptions, cfg: Config) -> tuple[Listing, list[str]]:
         )
         messages.extend(result.notes)
         if result.blocked:
-            messages.append("Blocked by Zillow — falling back to manual data.")
+            blocked = True
+            messages.append("Blocked by Zillow — no listing data came back.")
         elif result.listing.address or result.listing.photos:
             got = [n for n in ("address", "price", "beds", "baths", "sqft", "description", "agent_name")
                    if getattr(result.listing, n if n != "price" else "price_display", None)]
@@ -94,6 +102,7 @@ def acquire(options: RunOptions, cfg: Config) -> tuple[Listing, list[str]]:
     if options.manual_path:
         entered = manual_mod.load_manual(options.manual_path)
         listing = listing.merged_with(entered)  # typed values win
+        blocked = False  # a hand-filled template is the data; the block is moot
         messages.append(f"Applied manual data from {Path(options.manual_path).name}.")
 
     if options.overrides is not None:
@@ -103,17 +112,26 @@ def acquire(options: RunOptions, cfg: Config) -> tuple[Listing, list[str]]:
     if listing.missing_required() and options.interactive:
         listing = listing.merged_with(manual_mod.prompt_interactive(listing))
 
-    return listing, messages
+    return listing, messages, blocked and not listing.address and not listing.photos
 
 
 def run_one(options: RunOptions, cfg: Config) -> RunResult:
     """Process a single listing. Returns a result rather than raising."""
     log = print if options.verbose else (lambda *a, **k: None)
 
-    listing, messages = acquire(options, cfg)
+    listing, messages, stonewalled = acquire(options, cfg)
     result = RunResult(listing=listing, messages=messages)
     for message in messages:
         log(f"  - {message}")
+
+    # Blocked with nothing to show for it: bail out now so the caller can
+    # reopen with a visible browser. Presenting a review table of twelve empty
+    # fields invites the operator to type the whole listing by hand — or, more
+    # often, to quit — when clearing one challenge would have filled it in.
+    if stonewalled and not options.solve_challenge:
+        result.status = "needs_input"
+        result.messages.append("Nothing was scraped — the human check needs clearing.")
+        return result
 
     # Let the operator eyeball and correct the scrape before anything is
     # rendered or uploaded. Skipped when there is no terminal to prompt on,
