@@ -155,6 +155,83 @@ class TestRenderedDom(unittest.TestCase):
         self.assertTrue(all("1920" in p.url for p in self.listing.photos))
 
 
+class TestSoldDom(unittest.TestCase):
+    """Sold / off-market pages, which `./sold` archives without a video."""
+
+    @classmethod
+    def setUpClass(cls):
+        fixture = Path(__file__).parent / "fixtures" / "sold_dom.html"
+        cls.listing = parse_html(fixture.read_text(encoding="utf-8")).listing
+
+    def test_address_survives_the_nbsp(self):
+        # The heading is "804 E Lakeview St,&nbsp;Centralia, MO 65240"; a
+        # non-breaking space is not \s to every regex, and the split would
+        # otherwise leave the city glued to the comma.
+        self.assertEqual(self.listing.address, "804 E Lakeview St, Centralia, MO 65240")
+        self.assertEqual(self.listing.city, "Centralia")
+
+    def test_newer_bed_bath_sqft_container(self):
+        # Off-market pages drop the per-part testids and use two bare spans.
+        self.assertEqual(self.listing.beds, 2)
+        self.assertEqual(self.listing.baths, 1)
+        self.assertEqual(self.listing.sqft, 768)
+
+    def test_at_a_glance_found_by_aria_label(self):
+        self.assertEqual(self.listing.year_built, "1947")
+        self.assertEqual(self.listing.home_type, "Single Family Residence")
+        self.assertEqual(self.listing.lot_size, "6,534 Square Feet Lot")
+
+    def test_both_sides_of_the_sale(self):
+        self.assertEqual(self.listing.agent_name, "Griffin Anderson")
+        self.assertEqual(self.listing.brokerage, "Iron Gate Real Estate")
+        # "Bought with" has no testid — only the label beside it identifies it.
+        # The licence number trailing the name is not part of the name.
+        self.assertEqual(self.listing.buyer_agent, "Shawna Neuner")
+        self.assertEqual(self.listing.buyer_brokerage, "Century 21 Community")
+
+    def test_sold_date_from_the_price_history_row(self):
+        # The date leads the row, so the pattern cannot anchor on "Sold".
+        self.assertEqual(self.listing.sold_date, "8/6/2026")
+
+    def test_a_missing_sale_price_does_not_block_the_archive(self):
+        # Missouri is a non-disclosure state: the page says "Price Unknown"
+        # and no sale price is ever published. Requiring one would push every
+        # such listing into the manual template for a field that cannot exist.
+        self.assertEqual(self.listing.price_display, "")
+        self.assertEqual(self.listing.missing_required(), ["price"])
+        self.assertEqual(self.listing.missing_required(("address", "photos")), [])
+
+    def test_prose_sold_date_is_not_mangled_by_ignorecase(self):
+        # [A-Z][a-z]+ under re.IGNORECASE matches lowercase too, which turned
+        # "August 6, 2026" into "st 6, 2026".
+        html = '<h1>1 A St, Ames, IA 50010</h1><span>Sold on August 6, 2026</span>'
+        self.assertEqual(parse_html(html).listing.sold_date, "August 6, 2026")
+
+    def test_review_accepts_a_sold_listing_with_no_price(self):
+        # The review loop refuses Enter while a required field is blank. With
+        # the default rules that is a dead end on a sold listing: price can
+        # never be filled, so there is no key that gets you out.
+        import builtins
+        import contextlib
+        import io
+
+        from zillow_reels.manual import review_listing
+
+        supplied = iter([""])
+        original = builtins.input
+        builtins.input = lambda *a, **k: next(supplied)
+        try:
+            with contextlib.redirect_stdout(io.StringIO()):
+                out = review_listing(self.listing, Config(), ("address", "photos"))
+        finally:
+            builtins.input = original
+        self.assertEqual(out.address, "804 E Lakeview St, Centralia, MO 65240")
+
+    def test_a_listing_date_is_not_mistaken_for_a_sale(self):
+        html = '<h1>1 A St, Ames, IA 50010</h1><span>Listed for sale 8/6/2026</span>'
+        self.assertEqual(parse_html(html).listing.sold_date, "")
+
+
 class TestBuildingDom(unittest.TestCase):
     """Apartment/building pages (zillow.com/apartments/...), a second page type."""
 

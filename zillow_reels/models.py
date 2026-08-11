@@ -169,6 +169,11 @@ class Listing:
     agent_name: str = ""
     agent_phone: str = ""
     brokerage: str = ""
+    # Sold listings only. Zillow calls the two sides "Listed by" and "Bought
+    # with"; agent_name/brokerage above are the listing (seller's) side.
+    buyer_agent: str = ""
+    buyer_brokerage: str = ""
+    sold_date: str = ""
     photos: list[Photo] = field(default_factory=list)
     # Every rentable unit, cheapest first. Empty for a for-sale home.
     units: list[Unit] = field(default_factory=list)
@@ -260,16 +265,18 @@ class Listing:
 
     REQUIRED = ("address", "price", "photos")
 
-    def missing_required(self) -> list[str]:
-        """What must be filled in before a video is worth rendering."""
-        missing = []
-        if not self.address:
-            missing.append("address")
-        if not self.price_display:
-            missing.append("price")
-        if not self.photos:
-            missing.append("photos")
-        return missing
+    def missing_required(self, required: tuple[str, ...] = ("address", "price", "photos")) -> list[str]:
+        """What must be filled in before the run is worth continuing.
+
+        `required` is narrowed for sold listings, which have no asking price
+        and often no published sale price at all.
+        """
+        have = {
+            "address": bool(self.address),
+            "price": bool(self.price_display),
+            "photos": bool(self.photos),
+        }
+        return [name for name in required if not have.get(name, True)]
 
     def missing_optional(self) -> list[str]:
         """Fields that degrade the video but don't block it."""
@@ -353,6 +360,9 @@ class Listing:
             agent_name=_clean(get("agent_name", "agentName", "listing_agent")),
             agent_phone=_clean(get("agent_phone", "agentPhoneNumber", "phone")),
             brokerage=_clean(get("brokerage", "brokerName", "broker")),
+            buyer_agent=_clean(get("buyer_agent", "buyerAgentName")),
+            buyer_brokerage=_clean(get("buyer_brokerage", "buyerBrokerName")),
+            sold_date=_clean(get("sold_date", "dateSold", "dateSoldString")),
         )
 
         raw_photos = get("photos", "images", "photo_urls")

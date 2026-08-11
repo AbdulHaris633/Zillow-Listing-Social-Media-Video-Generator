@@ -1,0 +1,76 @@
+#!/bin/bash
+# Archive a SOLD listing: photos and closing details into Google Drive.
+#
+#   ./sold                          asks for the link
+#   ./sold <zillow-url>             scrape -> review -> photos -> Drive
+#
+# No video is rendered. A sold listing is a record, not an advertisement —
+# what matters is the address, what it went for, when, and who closed it.
+#
+# If Zillow asks for the human check, this opens a browser, waits for you to
+# clear it, and carries straight on. The cookie is shared with ./reel, so
+# clearing it in either place covers both.
+#
+# Anything extra is passed through:  ./sold <url> --no-drive
+# Other modes:                       ./sold --manual listing.json
+
+set -uo pipefail
+
+# Resolve the project from the script's own location but stay in the caller's
+# directory, so relative paths they type land where they expect.
+HERE="$(cd "$(dirname "$0")" && pwd)"
+PY="$HERE/.venv/bin/python"
+PROFILE="${ZILLOW_PROFILE:-$HOME/.zillow-profile}"
+
+if [ ! -x "$PY" ]; then
+    echo "First-time setup (once):"
+    echo "    cd $HERE && python3 -m venv .venv && .venv/bin/pip install -r requirements.txt"
+    exit 1
+fi
+
+# Skip the Drive step automatically until OAuth credentials exist. Expanded
+# with the ${ARR[@]+...} guard below: on bash 3.2 an empty array and `set -u`
+# are an error, and this array is empty whenever Drive is configured.
+DRIVE=()
+if [ ! -f "$HOME/.config/zillow-reels/client_secret.json" ] \
+   && [ ! -f "client_secret.json" ] && [ ! -f "$HERE/client_secret.json" ]; then
+    DRIVE=(--no-drive)
+fi
+
+case "${1:-}" in
+    --manual)
+        exec "$PY" -m zillow_reels sold "$@" --review ${DRIVE[@]+"${DRIVE[@]}"}
+        ;;
+    -h|--help)
+        sed -n '2,15p' "$0" | sed 's/^# \{0,1\}//'
+        exit 0
+        ;;
+esac
+
+if [ $# -eq 0 ]; then
+    printf 'Paste the Zillow SOLD listing link: '
+    read -r URL
+    [ -z "$URL" ] && { echo "No link given."; exit 1; }
+    set -- "$URL"
+fi
+
+BROWSER=(--fetch browser --browser-channel chrome --browser-profile "$PROFILE" --review)
+
+"$PY" -m zillow_reels sold "$@" ${BROWSER[@]+"${BROWSER[@]}"} ${DRIVE[@]+"${DRIVE[@]}"} --no-fallback-template
+STATUS=$?
+
+# Exit 3 means it could not get the data — nearly always the human check.
+if [ $STATUS -eq 3 ]; then
+    echo
+    echo "──────────────────────────────────────────────────────────────"
+    echo " Zillow wants to confirm you're human."
+    echo " A browser window is opening — press & hold the button in it."
+    echo " Everything continues automatically once you do."
+    echo "──────────────────────────────────────────────────────────────"
+    echo
+    "$PY" -m zillow_reels sold "$@" ${BROWSER[@]+"${BROWSER[@]}"} ${DRIVE[@]+"${DRIVE[@]}"} \
+        --show-browser --solve-challenge
+    STATUS=$?
+fi
+
+exit $STATUS

@@ -151,8 +151,16 @@ REVIEW_FIELDS = [
     ("agent_name", "Agent"),
     ("agent_phone", "Agent phone"),
     ("brokerage", "Brokerage"),
+    # Sold listings. Shown for every listing so the numbering never shifts
+    # between a `reel` run and a `sold` one; blank on anything still for sale.
+    ("sold_date", "Sold date"),
+    ("buyer_agent", "Buyer's agent"),
+    ("buyer_brokerage", "Buyer's brokerage"),
     ("description", "Description"),
 ]
+
+
+SOLD_FIELDS = {"sold_date", "buyer_agent", "buyer_brokerage"}
 
 
 def _display_value(listing: Listing, attr: str, width: int = 66) -> str:
@@ -174,7 +182,7 @@ def _display_value(listing: Listing, attr: str, width: int = 66) -> str:
     return text if len(text) <= width else text[: width - 1] + "…"
 
 
-def review_listing(listing: Listing, cfg=None) -> Listing:
+def review_listing(listing: Listing, cfg=None, required: tuple[str, ...] = ("address", "price", "photos")) -> Listing:
     """Show what was scraped and let the operator correct it before rendering.
 
     Enter accepts everything as-is. Anything else is a field number to edit,
@@ -185,10 +193,15 @@ def review_listing(listing: Listing, cfg=None) -> Listing:
         print("\n" + "─" * 74)
         print("  Scraped listing — check it over before the video is built")
         print("─" * 74)
+        sold = bool(listing.sold_date or listing.buyer_agent or "SOLD" in (listing.status or "").upper())
         for index, (attr, label) in enumerate(REVIEW_FIELDS, 1):
             value = _display_value(listing, attr)
-            marker = " " if value else "!"
-            print(f" {marker}{index:>3}  {label:<13} {value or '(missing)'}")
+            # Only flag a blank the operator can act on. The sold columns are
+            # meaningless on a listing that is still for sale, and a screenful
+            # of "!" trains people to ignore the marker that matters.
+            relevant = sold if attr in SOLD_FIELDS else True
+            marker = " " if value or not relevant else "!"
+            print(f" {marker}{index:>3}  {label:<18} {value or '(missing)'}")
 
         captioned = sum(1 for p in listing.photos if p.caption)
         limit = getattr(cfg, "max_photos", 0) or 0
@@ -197,7 +210,7 @@ def review_listing(listing: Listing, cfg=None) -> Listing:
             photo_note += f" (all saved · first {limit} in the video)"
         if captioned:
             photo_note += f" · {captioned} captioned"
-        print(f"     p  {'Photos':<13} {photo_note}")
+        print(f"     p  {'Photos':<18} {photo_note}")
 
         # Rentals only. The units become their own card(s) in the video, so
         # they belong in the summary of what is about to be rendered.
@@ -207,10 +220,10 @@ def review_listing(listing: Listing, cfg=None) -> Listing:
             if listing.price_display:
                 note += f" · {listing.price_display}"
             note += f" · {pages} card{'s' if pages != 1 else ''} in the video"
-            print(f"     u  {'Units':<13} {note}")
+            print(f"     u  {'Units':<18} {note}")
         print("─" * 74)
 
-        missing = listing.missing_required()
+        missing = listing.missing_required(required)
         if missing:
             print(f"  Still needed before rendering: {', '.join(missing)}")
 

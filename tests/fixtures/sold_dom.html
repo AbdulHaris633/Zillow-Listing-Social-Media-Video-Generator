@@ -1,0 +1,51 @@
+<!-- A sold / off-market page, details fictionalised. Structurally distinct
+     from a live for-sale listing in four ways that all matter:
+       * the price reads "Price Unknown" — Missouri is a non-disclosure
+         state, so what a home actually sold for is frequently never public
+       * beds/baths/sqft use a newer container with no per-part testids
+       * "At a glance facts" is identified by aria-label, not data-testid
+       * there is a second agent — "Bought with" — and it carries no testid
+         at all, only the label beside it -->
+<div class="layout-static-column-container">
+  <span data-testid="price">Price Unknown</span>
+  <h1>804 E Lakeview St,&nbsp;Centralia, MO 65240</h1>
+
+  <div data-testid="bed-bath-sqft-facts">
+    <div data-testid="bed-bath-sqft-fact-container"><span>2</span><span>beds</span></div>
+    <div data-testid="bed-bath-sqft-fact-container"><span>1</span><span>baths</span></div>
+    <div data-testid="bed-bath-sqft-fact-container"><span>768</span><span>sqft</span></div>
+  </div>
+
+  <div role="list" aria-label="At a glance facts">
+    <div role="listitem"><span><span>Single Family Residence</span></span></div>
+    <div role="listitem"><span><span>Built in 1947</span></span></div>
+    <div role="listitem"><span><span>6,534 Square Feet Lot</span></span></div>
+    <div role="listitem"><span><span>$151,200 Zestimate<sup>®</sup></span></span></div>
+  </div>
+
+  <table>
+    <tr><td>8/6/2026</td><td>Sold</td><td>$150,000</td></tr>
+    <tr><td>6/12/2026</td><td>Listed for sale</td><td>$154,900</td></tr>
+  </table>
+
+  <div data-testid="seller-attribution">
+    <span data-testid="attribution-title">Listed by:</span>
+    <p data-testid="attribution-LISTING_AGENT"><span>Griffin Anderson</span> <span>573-555-3656,</span></p>
+    <p data-testid="attribution-BROKER"><span>Iron Gate Real Estate</span> <span>573-555-5001</span></p>
+  </div>
+
+  <div class="c11n nfs-d_flex">
+    <span>Bought with:</span>
+    <div>
+      <p>Shawna Neuner, 2018019696</p>
+      <p>Century 21 Community</p>
+    </div>
+  </div>
+
+  <div><span>Source: MMBOR,</span><span>MLS#: 435271</span></div>
+
+  <picture>
+    <source type="image/jpeg" srcset="https://photos.zillowstatic.com/fp/sold1-cc_ft_768.jpg 768w, https://photos.zillowstatic.com/fp/sold1-cc_ft_1536.jpg 1536w">
+    <img src="https://photos.zillowstatic.com/fp/sold1-cc_ft_768.jpg">
+  </picture>
+</div>

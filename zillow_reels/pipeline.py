@@ -35,6 +35,9 @@ class RunOptions:
     # fallback template, so a stale one isn't left behind by an attempt that
     # was never meant to be the last word.
     write_fallback_template: bool = True
+    # Narrowed for sold listings, which have no asking price and, in
+    # non-disclosure states, no published sale price to fall back on.
+    required: tuple[str, ...] = ("address", "price", "photos")
     interactive: bool = False
     workdir: Path = Path("out")
     upload: bool = True
@@ -109,7 +112,7 @@ def acquire(options: RunOptions, cfg: Config) -> tuple[Listing, list[str], bool]
         listing = listing.merged_with(options.overrides)
         messages.append("Applied row overrides.")
 
-    if listing.missing_required() and options.interactive:
+    if listing.missing_required(options.required) and options.interactive:
         listing = listing.merged_with(manual_mod.prompt_interactive(listing))
 
     return listing, messages, blocked and not listing.address and not listing.photos
@@ -137,11 +140,11 @@ def run_one(options: RunOptions, cfg: Config) -> RunResult:
     # rendered or uploaded. Skipped when there is no terminal to prompt on,
     # so batch runs and cron jobs are unaffected.
     if options.review and sys.stdin.isatty():
-        listing = manual_mod.review_listing(listing, cfg)
+        listing = manual_mod.review_listing(listing, cfg, options.required)
         result.listing = listing
 
     # --- gate on required fields -----------------------------------------
-    missing = listing.missing_required()
+    missing = listing.missing_required(options.required)
     if missing:
         result.status = "needs_input"
         result.messages.append(f"Missing required field(s): {', '.join(missing)}")

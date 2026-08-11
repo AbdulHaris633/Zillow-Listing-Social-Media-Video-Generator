@@ -141,6 +141,28 @@ def cmd_make(args: argparse.Namespace) -> int:
     return 0 if result.ok else (3 if result.status == "needs_input" else 1)
 
 
+def cmd_sold(args: argparse.Namespace) -> int:
+    """Archive a sold listing: photos and closing details to Drive, no video."""
+    if not args.url and not args.manual and not args.from_html:
+        print("Provide a Zillow URL, --manual <template.json>, or --from-html <page.html>.", file=sys.stderr)
+        return 2
+
+    cfg = _config_from_args(args)
+    options = _options_from_args(args)
+    options.skip_video = True
+    # A sold listing has no asking price to advertise, and in non-disclosure
+    # states Zillow never publishes what it went for. Requiring one would push
+    # every such listing into the manual template for a field that does not
+    # exist, so the archive job asks only for an address and photos.
+    options.required = ("address", "photos")
+
+    print(f"\nZillow Reels {__version__} — sold listing")
+    print(f"  Source: {args.url or args.manual or args.from_html}")
+    result = run_one(options, cfg)
+    _report(result)
+    return 0 if result.ok else (3 if result.status == "needs_input" else 1)
+
+
 def cmd_batch(args: argparse.Namespace) -> int:
     """Process a CSV. Recognised columns: url, manual, plus any Listing field."""
     csv_path = Path(args.csv).expanduser()
@@ -302,6 +324,20 @@ def build_parser() -> argparse.ArgumentParser:
     make.add_argument("--no-video", action="store_true", help="fetch photos and upload, skip rendering")
     _common_args(make)
     make.set_defaults(func=cmd_make)
+
+    # A sold listing is an archive job, not a marketing one: the photos and the
+    # closing details go to Drive, and there is nothing to advertise, so no
+    # video is rendered. Same pipeline otherwise.
+    sold = sub.add_parser("sold", help="archive a sold listing's photos and details (no video)")
+    sold.add_argument("url", nargs="?", default="", help="Zillow sold-listing URL")
+    sold.add_argument("--manual", default="", help="filled-in template JSON")
+    sold.add_argument("--from-html", default="", help="parse a page you saved from your browser")
+    sold.add_argument("--no-fallback-template", action="store_true",
+                      help="don't write a manual template on failure (for callers that retry)")
+    sold.add_argument("--review", action="store_true",
+                      help="show the scraped data and let you edit it before uploading")
+    _common_args(sold)
+    sold.set_defaults(func=cmd_sold)
 
     batch = sub.add_parser("batch", help="process a CSV of listings")
     batch.add_argument("csv", help="CSV with a 'url' and/or 'manual' column")

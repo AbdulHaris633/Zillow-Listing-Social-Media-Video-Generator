@@ -40,6 +40,14 @@ from bs4 import BeautifulSoup
 
 from .models import Listing, Photo, Unit, _as_number, _clean
 
+# A date in either of the two shapes Zillow prints: "8/6/2026" in tables,
+# "August 6, 2026" in prose. Month names are listed rather than matched as
+# [A-Z][a-z]+ so the pattern stays correct under re.IGNORECASE.
+DATE_PATTERN = (
+    r"\d{1,2}[/-]\d{1,2}[/-]\d{2,4}"
+    r"|(?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)[a-z]*\.? \d{1,2},? \d{4}"
+)
+
 # Markers that mean "you were blocked", not "this listing has no data".
 BLOCK_MARKERS = (
     "px-captcha",
@@ -561,6 +569,12 @@ def parse_next_data(soup: BeautifulSoup) -> tuple[Listing | None, str]:
                 "agent_name": attribution.get("agentName"),
                 "agent_phone": attribution.get("agentPhoneNumber"),
                 "brokerage": attribution.get("brokerName"),
+                # Sold listings: Zillow names the two sides "buyer" and the
+                # listing agent above. lastSoldPrice is the only price a sold
+                # page carries once `price` has been zeroed out.
+                "buyer_agent": attribution.get("buyerAgentName"),
+                "buyer_brokerage": attribution.get("buyerBrokerageName"),
+                "sold_date": prop.get("dateSoldString") or prop.get("dateSold"),
                 "lot_size": prop.get("lotAreaValue") and
                 f"{prop.get('lotAreaValue')} {prop.get('lotAreaUnits') or ''}".strip(),
             }
@@ -880,6 +894,17 @@ def parse_dom(soup: BeautifulSoup) -> tuple[Listing | None, str]:
         if field and field not in data:
             data[field] = _clean(value.get_text())
 
+    # Off-market and sold pages use a newer, simpler container: two bare spans,
+    # value then label, with no per-part testids to key on.
+    for container in soup.select('[data-testid="bed-bath-sqft-fact-container"]'):
+        spans = container.find_all("span", recursive=False) or container.find_all("span")
+        if len(spans) < 2:
+            continue
+        key = _clean(spans[1].get_text()).lower().rstrip("s")
+        field = {"bed": "beds", "bath": "baths", "sqft": "sqft"}.get(key)
+        if field and field not in data:
+            data[field] = _clean(spans[0].get_text())
+
     status = soup.select_one('[data-testid="home-status"]')
     if status:
         data["status"] = _clean(status.get_text()).upper().replace(" ", "_")
@@ -925,8 +950,47 @@ def parse_dom(soup: BeautifulSoup) -> tuple[Listing | None, str]:
         if len(lines) > 1:
             data.setdefault("brokerage", lines[1])
 
+    # "Sold 08/06/2026" in the price-history table, or the same fact spelled
+    # out in the listing details. Sold pages put it in one place or the other
+    # depending on how much history the MLS released.
+    for row in soup.select("tr, li, span, p"):
+        text = _clean(row.get_text(" "))
+        # Short rows only: a whole page of text mentions "sold" somewhere and
+        # would pair it with the first unrelated date on the page.
+        if len(text) > 80 or "sold" not in text.lower():
+            continue
+        # The date sits either side of the word depending on the layout — a
+        # price-history row leads with it, a sentence trails it — so match the
+        # date on its own rather than anchoring to "sold".
+        if match := re.search(DATE_PATTERN, text):
+            data.setdefault("sold_date", match.group(0))
+            break
+
+    # Zillow's own "Bought with:" block, which carries no testid of its own —
+    # only the label beside it identifies the buyer's side of the sale.
+    for label in soup.find_all(["span", "p"]):
+        if not re.fullmatch(r"bought with:?", _clean(label.get_text()), re.I):
+            continue
+        block = label.find_next_sibling(["div", "p"]) or (
+            label.parent.find_next_sibling("div") if label.parent else None
+        )
+        if not block:
+            continue
+        lines = [_clean(p.get_text()) for p in block.find_all("p")] or [
+            _clean(block.get_text())
+        ]
+        lines = [line for line in lines if line]
+        if lines:
+            # "Shawna Neuner, 2018019696" — the licence number is not a name.
+            data.setdefault("buyer_agent", re.split(r",\s*\d", lines[0])[0].strip(" ,"))
+        if len(lines) > 1:
+            data.setdefault("buyer_brokerage", lines[1])
+        break
+
     # "Single family residence", "Built in 1979", "0.61 Acres" chips.
-    glance = soup.select_one('[data-testid="at-a-glance"]')
+    glance = soup.select_one('[data-testid="at-a-glance"]') or soup.select_one(
+        '[aria-label="At a glance facts"]'
+    )
     if glance:
         for span in glance.find_all("span"):
             text = _clean(span.get_text())
@@ -934,7 +998,11 @@ def parse_dom(soup: BeautifulSoup) -> tuple[Listing | None, str]:
                 continue
             if match := re.match(r"Built in (\d{4})", text, re.I):
                 data.setdefault("year_built", match.group(1))
-            elif re.search(r"\b(acres?|sq ?ft lot)\b", text, re.I) and re.match(r"[\d.]", text):
+            # "0.61 Acres", "6,534 sqft lot", "6,534 Square Feet Lot" — the
+            # wording varies by page vintage, the leading number does not.
+            elif re.search(
+                r"\b(acres?|sq ?ft lot|square (feet|foot) lot)\b", text, re.I
+            ) and re.match(r"[\d.]", text):
                 data.setdefault("lot_size", text)
             elif re.search(r"(residence|house|condo|townhouse|apartment|land)", text, re.I):
                 data.setdefault("home_type", text)
