@@ -15,6 +15,7 @@ from pathlib import Path
 
 from PIL import Image
 
+from zillow_reels.cards import render_units_cards
 from zillow_reels.config import Config
 from zillow_reels.manual import load_manual, write_template
 from zillow_reels.models import Listing, Photo
@@ -191,6 +192,19 @@ class TestBuildingDom(unittest.TestCase):
         # One bath across the board must read "1 BATH", not "1 BATHS".
         single = Listing.from_dict({"baths": 1, "baths_text": "1", "beds": 2, "beds_text": "1-2"})
         self.assertEqual(single.stats(), [("1-2", "BEDS"), ("1", "BATH")])
+
+    def test_every_available_unit_is_kept(self):
+        self.assertEqual([u.name for u in self.listing.units], ["604", "3 Bedroom"])
+        cheap, dear = self.listing.units
+        self.assertEqual((cheap.beds, cheap.baths, cheap.sqft), (2, 1, 822))
+        self.assertEqual(cheap.available, "Now")
+        self.assertEqual(cheap.rent_display, "$1,014")
+        self.assertEqual(dear.layout, "3 bd · 2 ba")
+
+    def test_units_are_ordered_cheapest_first(self):
+        # The table arrives sorted by whatever column Zillow last sorted on.
+        rents = [u.rent for u in self.listing.units]
+        self.assertEqual(rents, sorted(rents))
 
     def test_management_company_read_from_the_legacy_agent_block(self):
         # The display name is frequently a role rather than a person, which
@@ -560,6 +574,55 @@ class TestRender(unittest.TestCase):
         cfg = Config()
         for card in (render_title_card(listing, cfg), render_outro_card(listing, cfg)):
             self.assertEqual(card.size, (1080, 1920))
+
+
+class TestUnitsCard(unittest.TestCase):
+    """The availability table slide, for rentals only."""
+
+    @staticmethod
+    def _listing(count: int) -> Listing:
+        return Listing.from_dict({
+            "address": "305 Tiger Ln, Columbia, MO 65203",
+            "units": [
+                {"name": str(300 + i), "beds": 1, "baths": 1, "sqft": 513,
+                 "available": "Now", "rent": 1000 + i}
+                for i in range(count)
+            ],
+        })
+
+    def test_a_for_sale_home_gets_no_units_card(self):
+        listing = Listing.from_dict({"address": "1 Bare St, Nowhere, KS 66002"})
+        self.assertEqual(render_units_cards(listing, Config()), [])
+
+    def test_short_table_fits_one_card(self):
+        cards = render_units_cards(self._listing(6), Config())
+        self.assertEqual(len(cards), 1)
+        self.assertEqual(cards[0].size, (1080, 1920))
+
+    def test_long_table_pages_evenly(self):
+        # 10 units read better as 5 + 5 than 8 + 2, which leaves a bare card.
+        self.assertEqual(len(render_units_cards(self._listing(10), Config())), 2)
+        self.assertEqual(len(render_units_cards(self._listing(14), Config())), 2)
+        self.assertEqual(len(render_units_cards(self._listing(20), Config())), 3)
+
+    def test_units_survive_a_template_round_trip(self):
+        # The manual template writes units out as dicts; they have to come back
+        # as Units or the card silently vanishes from a hand-corrected run.
+        original = self._listing(3)
+        revived = Listing.from_dict({
+            "address": original.address,
+            "units": [u.to_dict() for u in original.units],
+        })
+        self.assertEqual(len(revived.units), 3)
+        self.assertEqual(revived.units[0].rent_display, "$1,000")
+
+    def test_units_survive_a_merge(self):
+        # asdict() flattens nested dataclasses; without care the merge would
+        # put plain dicts back on the listing and the card would crash.
+        scraped = self._listing(4)
+        merged = scraped.merged_with(Listing.from_dict({"price": 1234}))
+        self.assertEqual(len(merged.units), 4)
+        self.assertEqual(merged.units[0].layout, "1 bd · 1 ba")
 
 
 if __name__ == "__main__":

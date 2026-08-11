@@ -342,6 +342,115 @@ def render_title_card(listing: Listing, cfg: Config, hero: Image.Image | None = 
     return canvas.convert("RGB")
 
 
+# How many units fit on one card and still read on a phone held at arm's
+# length. Beyond this the list is split across cards rather than shrunk.
+UNITS_PER_CARD = 8
+
+
+def render_units_cards(
+    listing: Listing, cfg: Config, hero: Image.Image | None = None
+) -> list[Image.Image]:
+    """One card per page of the availability table. Empty for a for-sale home.
+
+    A renter scanning a building wants the actual rows — which unit, how big,
+    when it's free, what it costs — not just the range on the title card. Long
+    tables page rather than shrink: fourteen units squeezed onto one 1080-wide
+    card would be unreadable on the device this is watched on.
+    """
+    if not listing.units:
+        return []
+
+    # Spread evenly rather than filling each card to the brim: ten units read
+    # better as 5 + 5 than as 8 + 2, which leaves the last card nearly bare.
+    count = -(-len(listing.units) // UNITS_PER_CARD)
+    per_page = -(-len(listing.units) // count)
+    pages = [listing.units[i : i + per_page] for i in range(0, len(listing.units), per_page)]
+    return [
+        _render_units_page(listing, cfg, hero, page, index, len(pages))
+        for index, page in enumerate(pages, 1)
+    ]
+
+
+def _render_units_page(
+    listing: Listing,
+    cfg: Config,
+    hero: Image.Image | None,
+    units: list,
+    page: int,
+    pages: int,
+) -> Image.Image:
+    # Text-dense like the outro, so the backdrop is dimmed harder than the
+    # title card to keep the rows legible over a photo.
+    canvas = _backdrop(cfg, hero, extra_dim=70).convert("RGBA")
+    draw = ImageDraw.Draw(canvas)
+    type_ = Typeset(cfg)
+
+    accent = hex_to_rgb(cfg.accent)
+    text_rgb = hex_to_rgb(cfg.text)
+    muted = hex_to_rgb(cfg.muted)
+    margin = int(cfg.width * 0.09)
+    content_w = cfg.width - 2 * margin
+    center = cfg.width // 2
+
+    heading = "AVAILABLE UNITS" if pages == 1 else f"AVAILABLE UNITS · {page}/{pages}"
+    total = len(listing.units)
+    summary = f"{total} unit{'s' if total != 1 else ''}"
+    if listing.price_display:
+        summary += f" · {listing.price_display}"
+
+    # Tall enough that the divider clears the descenders of the detail line
+    # above it; any tighter and the rule reads as an underline.
+    row_h = 118
+    name_font = type_.bold(46)
+    detail_font = type_.regular(30)
+    rent_font = type_.bold(46)
+
+    def render_rows(y: float) -> None:
+        for index, unit in enumerate(units):
+            top = y + index * row_h
+            draw.text((margin, top), unit.name or "Unit", font=name_font, fill=text_rgb, anchor="la")
+            details = " · ".join(
+                part
+                for part in (
+                    unit.layout,
+                    f"{int(unit.sqft):,} sq ft" if unit.sqft else "",
+                    unit.available,
+                )
+                if part
+            )
+            draw.text((margin, top + 54), details, font=detail_font, fill=muted, anchor="la")
+            if unit.rent_display:
+                draw.text(
+                    (cfg.width - margin, top + 8),
+                    unit.rent_display,
+                    font=rent_font,
+                    fill=accent,
+                    anchor="ra",
+                )
+            if index:
+                # Midway between the detail line above and the name below —
+                # 26px higher and it underlines the text above it.
+                line_y = top - 14
+                draw.line(
+                    [(margin, line_y), (cfg.width - margin, line_y)],
+                    fill=(255, 255, 255, 38),
+                    width=2,
+                )
+
+    stack = Stack(draw, center, content_w)
+    stack.pill(heading, type_.bold(32), accent, hex_to_rgb(cfg.background), gap=34)
+    stack.text(summary, type_.regular(34), muted, gap=46)
+    stack.rule(180, accent, gap=52)
+    stack.add(row_h * len(units), render_rows)
+
+    area_top = int(cfg.height * SAFE_TOP)
+    area_bottom = int(cfg.height * SAFE_BOTTOM) + 40
+    start = area_top + max((area_bottom - area_top - stack.height) / 2, 0)
+    stack.render(start)
+
+    return canvas.convert("RGB")
+
+
 def render_outro_card(listing: Listing, cfg: Config, hero: Image.Image | None = None) -> Image.Image:
     """Closing card: description excerpt, agent details, call to action."""
     # Text-dense card, so the backdrop is dimmed harder than the title card.

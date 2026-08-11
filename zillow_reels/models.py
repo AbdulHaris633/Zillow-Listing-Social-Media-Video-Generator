@@ -45,6 +45,58 @@ def format_count(value: float | None) -> str:
 
 
 @dataclass
+class Unit:
+    """One rentable unit in a building's availability table.
+
+    Only rentals have these. A for-sale home is a single unit and leaves the
+    list empty, which is what keeps the units card out of its video.
+    """
+
+    name: str = ""            # "604", "2 Bedroom"
+    beds: float | None = None
+    baths: float | None = None
+    sqft: float | None = None
+    available: str = ""       # "Now", "Oct 10" — Zillow's own wording
+    rent: float | None = None
+
+    @property
+    def layout(self) -> str:
+        """'1 bd · 1 ba' — the two numbers a renter filters on."""
+        parts = []
+        if self.beds is not None:
+            parts.append(f"{format_count(self.beds)} bd")
+        if self.baths is not None:
+            parts.append(f"{format_count(self.baths)} ba")
+        return " · ".join(parts)
+
+    @property
+    def rent_display(self) -> str:
+        return f"${int(round(self.rent)):,}" if self.rent else ""
+
+    def to_dict(self) -> dict[str, Any]:
+        out: dict[str, Any] = {}
+        for key in ("name", "beds", "baths", "sqft", "available", "rent"):
+            value = getattr(self, key)
+            if value not in (None, ""):
+                out[key] = value
+        return out
+
+    @classmethod
+    def from_any(cls, raw: Any) -> "Unit | None":
+        if not isinstance(raw, dict):
+            return None
+        unit = cls(
+            name=_clean(raw.get("name")),
+            beds=_as_number(raw.get("beds")),
+            baths=_as_number(raw.get("baths")),
+            sqft=_as_number(raw.get("sqft")),
+            available=_clean(raw.get("available")),
+            rent=_as_number(raw.get("rent")),
+        )
+        return unit if (unit.name or unit.rent or unit.beds is not None) else None
+
+
+@dataclass
 class Photo:
     """One listing image. `url` is remote, `path` is set once downloaded."""
 
@@ -118,6 +170,8 @@ class Listing:
     agent_phone: str = ""
     brokerage: str = ""
     photos: list[Photo] = field(default_factory=list)
+    # Every rentable unit, cheapest first. Empty for a for-sale home.
+    units: list[Unit] = field(default_factory=list)
 
     # Provenance, for the run report — not rendered into the video.
     source: str = ""
@@ -235,6 +289,7 @@ class Listing:
         data.pop("source", None)
         data.pop("notes", None)
         data["photos"] = [p.to_dict() for p in self.photos]
+        data["units"] = [u.to_dict() for u in self.units]
         return data
 
     @classmethod
@@ -278,6 +333,10 @@ class Listing:
         if isinstance(raw_photos, Iterable) and not isinstance(raw_photos, (str, bytes)):
             listing.photos = [p for p in (Photo.from_any(r) for r in raw_photos) if p]
 
+        raw_units = get("units")
+        if isinstance(raw_units, Iterable) and not isinstance(raw_units, (str, bytes)):
+            listing.units = [u for u in (Unit.from_any(r) for r in raw_units) if u]
+
         # A single 'address' string with no parts: split off "City, ST 12345".
         full = _clean(get("address"))
         if full and not listing.street:
@@ -302,13 +361,19 @@ class Listing:
         This is how manual entry patches a partial scrape: whatever the human
         typed wins, everything they left blank keeps the scraped value.
         """
-        merged = Listing(**{**asdict(self), "photos": list(self.photos)})
+        # asdict() recurses into the nested dataclasses, so photos and units
+        # have to be carried over as objects rather than the dicts it returns.
+        merged = Listing(
+            **{**asdict(self), "photos": list(self.photos), "units": list(self.units)}
+        )
         for key, value in asdict(other).items():
-            if key in ("photos", "notes"):
+            if key in ("photos", "units", "notes"):
                 continue
             if value not in (None, "", []):
                 setattr(merged, key, value)
         if other.photos:
             merged.photos = list(other.photos)
+        if other.units:
+            merged.units = list(other.units)
         merged.notes = [*self.notes, *other.notes]
         return merged

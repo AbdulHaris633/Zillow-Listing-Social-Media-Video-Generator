@@ -42,6 +42,10 @@ TEMPLATE: dict[str, Any] = {
     "brokerage": "",
     "photo_folder": "",
     "photos": [],
+    # Rentals only, and pre-filled rather than hand-typed: nobody is going to
+    # key in fourteen units, but losing a scraped table because one other
+    # field needed correcting would be worse.
+    "units": [],
 }
 
 IMAGE_SUFFIXES = {".jpg", ".jpeg", ".png", ".webp", ".heic", ".bmp", ".tif", ".tiff"}
@@ -155,6 +159,11 @@ def _display_value(listing: Listing, attr: str, width: int = 66) -> str:
         return listing.price_display or ""
     if attr == "address":
         return listing.address
+    # Show what the card will show. A building's beds are "1-2", and a review
+    # table reporting the bare "1" would invite a correction to something the
+    # video was never going to display.
+    if attr in ("beds", "baths", "sqft") and getattr(listing, f"{attr}_text", ""):
+        return getattr(listing, f"{attr}_text")
     value = getattr(listing, attr, "")
     if value in (None, ""):
         return ""

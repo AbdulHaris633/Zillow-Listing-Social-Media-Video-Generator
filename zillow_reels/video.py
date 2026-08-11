@@ -21,7 +21,14 @@ import numpy as np
 from PIL import Image
 
 from . import mpcompat
-from .cards import fit_cover, open_photo, render_caption_overlay, render_outro_card, render_title_card
+from .cards import (
+    fit_cover,
+    open_photo,
+    render_caption_overlay,
+    render_outro_card,
+    render_title_card,
+    render_units_cards,
+)
 from .config import Config
 from .models import Listing, Photo
 
@@ -265,6 +272,18 @@ def build_video(
                 caption=photo.caption,
             )
         )
+
+    # Availability table, after the photos and before the call to action: the
+    # viewer has seen the place by then, so this is where "which one can I
+    # actually rent, and when" is the question they have. Absent for a
+    # for-sale home, which has no units.
+    if cfg.units_seconds > 0:
+        for card in render_units_cards(listing, cfg, hero):
+            if verbose:
+                print("    adding an available-units card…")
+            segments.append(
+                StillSegment(np.asarray(card, dtype=np.uint8), cfg.units_seconds)
+            )
 
     segments.append(
         StillSegment(np.asarray(render_outro_card(listing, cfg, hero), dtype=np.uint8), cfg.outro_seconds)

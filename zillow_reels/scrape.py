@@ -38,7 +38,7 @@ from typing import Any, Iterator
 import requests
 from bs4 import BeautifulSoup
 
-from .models import Listing, Photo, _as_number, _clean
+from .models import Listing, Photo, Unit, _as_number, _clean
 
 # Markers that mean "you were blocked", not "this listing has no data".
 BLOCK_MARKERS = (
@@ -727,10 +727,7 @@ def _units_from_building_dom(soup: BeautifulSoup) -> dict[str, Any]:
     field gate and any sorting look at; the *_text fields carry the range and
     win on screen.
     """
-    rents: list[float] = []
-    beds: list[float] = []
-    baths: list[float] = []
-    sqfts: list[float] = []
+    units: list[Unit] = []
     hedged = False  # Zillow's "+" — fees may push the quoted rent higher
 
     for row in soup.select("[data-test-id='unit-table-row']"):
@@ -743,28 +740,40 @@ def _units_from_building_dom(soup: BeautifulSoup) -> dict[str, Any]:
         rent = _as_number(money.group(0))
         if rent is None:
             continue
-        rents.append(rent)
         hedged = hedged or money.group(0).endswith("+")
 
+        unit = Unit(rent=rent)
+        # The unit's own label is the first cell's leading text: a number
+        # ("604") in a large building, a layout name ("2 Bedroom") in a small
+        # one. Taken before the layout paragraph so the two don't run together.
+        if cells and (label := cells[0].find(["span", "div"])):
+            unit.name = _clean(label.get_text())
         if match := re.search(r"([\d.]+)\s*bd\b", text):
-            if (value := _as_number(match.group(1))) is not None:
-                beds.append(value)
+            unit.beds = _as_number(match.group(1))
         if match := re.search(r"([\d.]+)\s*ba\b", text):
-            if (value := _as_number(match.group(1))) is not None:
-                baths.append(value)
+            unit.baths = _as_number(match.group(1))
         # Sqft is a bare number in its own column. A regex over the row text
         # would match the rent's digits just as happily, so read the cell.
         if len(cells) >= 2 and re.fullmatch(r"[\d,]+", _clean(cells[1].get_text())):
-            if (value := _as_number(_clean(cells[1].get_text()))) is not None:
-                sqfts.append(value)
+            unit.sqft = _as_number(_clean(cells[1].get_text()))
+        if len(cells) >= 3:
+            unit.available = _clean(cells[2].get_text())
+        units.append(unit)
 
-    if not rents:
+    if not units:
         return {}
+
+    units.sort(key=lambda u: (u.rent if u.rent is not None else 0, u.name))
+    rents = [u.rent for u in units if u.rent is not None]
+    beds = [u.beds for u in units if u.beds is not None]
+    baths = [u.baths for u in units if u.baths is not None]
+    sqfts = [u.sqft for u in units if u.sqft is not None]
 
     money_fmt = lambda v: f"${int(round(v)):,}"  # noqa: E731
     count_fmt = lambda v: f"{v:g}"  # noqa: E731 - 1.0 -> "1", 1.5 -> "1.5"
 
     data: dict[str, Any] = {
+        "units": [u.to_dict() for u in units],
         "price": min(rents),
         "price_text": f"{_span(rents, money_fmt)}{'+' if hedged else ''}/mo",
     }

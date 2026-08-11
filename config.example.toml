@@ -13,6 +13,7 @@ disclaimer = ""             # e.g. brokerage licence line, small print on the ou
 photo_seconds = 2.6         # per photo
 title_seconds = 3.0
 outro_seconds = 4.5
+units_seconds = 5.0         # per page of a rental's availability table; 0 = omit
 crossfade_seconds = 0.45
 max_photos = 14             # ~45s total at defaults
 zoom = 1.0                  # 1.0 = still photos (no shimmer). 1.04 gentle, 1.12 strong.

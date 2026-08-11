@@ -53,6 +53,9 @@ class Config:
     title_seconds: float = 3.0
     photo_seconds: float = 2.6
     outro_seconds: float = 4.5
+    # Per page of the rental availability table. Long enough to read eight
+    # rows; set to 0 to leave the units out of the video entirely.
+    units_seconds: float = 5.0
     crossfade_seconds: float = 0.45
     max_photos: int = 14        # photos used in the video
     max_downloads: int = 0      # photos saved to disk / Drive; 0 = the whole gallery
