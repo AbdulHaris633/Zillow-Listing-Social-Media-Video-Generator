@@ -140,9 +140,14 @@ class Listing:
 
     @property
     def price_display(self) -> str:
+        # An explicit price_text wins: it is only ever set deliberately (a
+        # manual template, or a rental where the number alone would read as a
+        # sale price — "$1,014" instead of "$1,014+/mo").
+        if self.price_text:
+            return self.price_text
         if self.price:
             return f"${int(round(self.price)):,}"
-        return self.price_text
+        return ""
 
     @property
     def eyebrow(self) -> str:

@@ -154,6 +154,53 @@ class TestRenderedDom(unittest.TestCase):
         self.assertTrue(all("1920" in p.url for p in self.listing.photos))
 
 
+class TestBuildingDom(unittest.TestCase):
+    """Apartment/building pages (zillow.com/apartments/...), a second page type."""
+
+    @classmethod
+    def setUpClass(cls):
+        fixture = Path(__file__).parent / "fixtures" / "building_dom.html"
+        cls.listing = parse_html(fixture.read_text(encoding="utf-8")).listing
+
+    def test_address_beats_the_building_name(self):
+        # The <h1> is "Willow Bend Estates II". parse_dom's heading fallback
+        # reads that as the street, which is the bug this parser exists to fix.
+        self.assertEqual(self.listing.address, "3820 N Cedar St, Fairview, MO 65010")
+        self.assertEqual(self.listing.city, "Fairview")
+        self.assertEqual(self.listing.zipcode, "65010")
+
+    def test_cheapest_available_unit_sets_the_stats(self):
+        # Two units are listed; the 2-bed at $1,014 is cheaper than the 3-bed
+        # at $1,395, and cheapest is what Zillow itself headlines.
+        self.assertEqual(self.listing.price, 1014)
+        self.assertEqual(self.listing.price_display, "$1,014+/mo")
+        self.assertEqual(self.listing.beds, 2)
+        self.assertEqual(self.listing.baths, 1)
+        self.assertEqual(self.listing.sqft, 822)
+
+    def test_management_company_read_from_the_legacy_agent_block(self):
+        self.assertEqual(self.listing.agent_name, "Prairie Oak Management Inc.")
+        self.assertEqual(self.listing.agent_phone, "(573) 555-0142")
+
+    def test_description_excludes_the_show_more_label(self):
+        self.assertTrue(self.listing.description.startswith("Willow Bend Estates II is a Senior"))
+        self.assertNotIn("Show more", self.listing.description)
+
+    def test_neighbouring_properties_are_not_scooped_into_the_gallery(self):
+        # The page ends with a carousel of other buildings, each with a photo,
+        # and the management company has a logo. None belong in this slideshow.
+        urls = [p.url for p in self.listing.photos]
+        self.assertEqual(len(urls), 2)
+        self.assertTrue(all("-f_b.jpg" in u for u in urls))
+        self.assertFalse(any("-p_i.jpg" in u for u in urls))  # neighbours
+        self.assertFalse(any("-r_a.jpg" in u for u in urls))  # agent logo
+
+    def test_renders_without_manual_input(self):
+        self.assertEqual(self.listing.missing_required(), [])
+        self.assertEqual(self.listing.home_type, "Apartment building")
+        self.assertEqual(self.listing.status, "FOR_RENT")
+
+
 class TestReviewStep(unittest.TestCase):
     """The confirm-before-render prompt."""
 

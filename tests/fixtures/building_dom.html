@@ -1,0 +1,93 @@
+<!-- An apartment/building page (zillow.com/apartments/...), details fictionalised.
+     Structurally different from a for-sale home: the <h1> is the building name
+     rather than the address, price/beds/baths/sqft live in an availability
+     table, and the page ends with a carousel of *other* properties. -->
+<div class="layout-content-container">
+  <div class="bdp-fPSBzf">
+    <span class="c11n c11n-semantic">Senior housing</span>
+    <span class="c11n c11n-semantic">Income restricted</span>
+  </div>
+
+  <div data-test-id="bdp-building-info">
+    <h1 data-c11n-component="Text" data-test-id="bdp-building-title">Willow Bend Estates II</h1>
+    <h2 data-c11n-component="Text" data-test-id="bdp-building-address">3820 N Cedar St, Fairview, MO 65010</h2>
+  </div>
+
+  <div class="bdp-euleUI">
+    <span class="c11n c11n-semantic">Apartment building</span>
+    <span class="c11n c11n-semantic">2 beds</span>
+    <span class="c11n c11n-semantic">Air conditioning (central)</span>
+  </div>
+
+  <div data-test-id="bdp-units-table-for-rent" id="bdp-building-units-table">
+    <h4>Available units</h4>
+    <button type="button" data-testid="bed-button-2 bed"><span>2 bed <span>$1,014+</span></span></button>
+    <table aria-label="unit-table">
+      <thead><tr><th>Unit</th><th>Sqft</th><th>Avail.</th><th>Base rent</th></tr></thead>
+      <tbody>
+        <tr data-test-id="unit-table-row">
+          <td>
+            <span>3 Bedroom</span>
+            <img class="bdp-dVzwcO" src="https://photos.zillowstatic.com/fp/aaa1111111111111111111111111111a-f_b.jpg">
+            <p>3 bd, 2 ba</p>
+            <span data-testid="photo-count">6 photos</span>
+          </td>
+          <td>1,140</td><td>Now</td><td>$1,395+</td>
+        </tr>
+        <tr data-test-id="unit-table-row">
+          <td>
+            <span>2 Bedroom</span>
+            <img class="bdp-dVzwcO" src="https://photos.zillowstatic.com/fp/bbb2222222222222222222222222222b-f_b.jpg">
+            <p>2 bd, 1 ba</p>
+            <span data-testid="photo-count">8 photos</span>
+          </td>
+          <td>822</td><td>Now</td><td>$1,014+</td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+
+  <h2 data-c11n-component="Heading">What's special</h2>
+  <article>
+    <div class="bdp-gNOQHw" style="--max-height: 144px;">Willow Bend Estates II is a Senior Community in Fairview, Missouri with an abundance of apartment and community amenities. We are located near grocery stores, pharmacies, banks, restaurants and doctor's offices. The surrounding community provides modern conveniences designed to complement your lifestyle.</div>
+    <button data-c11n-component="TextButton.Root" type="button"><span>Show more</span></button>
+  </article>
+
+  <div class="ds-listing-agent-header" data-testid="listing-agent-header">Listed by management company</div>
+  <div class="ds-listing-agent-container" data-testid="listing-agent-container">
+    <div class="ds-listing-agent-image-container">
+      <img class="ds-listing-agent-image" alt="Prairie Oak Management Inc." src="https://photos.zillowstatic.com/fp/ccc3333333333333333333333333333c-r_a.jpg">
+    </div>
+    <ul class="ds-listing-agent-info">
+      <li><span class="ds-listing-agent-display-name">Prairie Oak Management Inc.</span></li>
+      <li><span class="ds-listing-agent-business-name"></span></li>
+      <li class="ds-listing-agent-info-text">(573) 555-0142</li>
+    </ul>
+  </div>
+
+  <h4>Nearby apartments for rent</h4>
+  <ul role="list">
+    <li>
+      <div class="mini_list_card" data-test-id="mini-list-card-container">
+        <a href="/apartments/fairview-mo/springbrook-park/CrXGW2/">
+          <article data-c11n-component="PropertyCard.Root" aria-label="Springbrook Park Apartments">
+            <div>$1,480 - $1,900</div>
+            <div>Springbrook Park Apartments</div>
+            <img src="https://photos.zillowstatic.com/fp/ddd4444444444444444444444444444d-p_i.jpg" alt="">
+          </article>
+        </a>
+      </div>
+    </li>
+    <li>
+      <div class="mini_list_card" data-test-id="mini-list-card-container">
+        <a href="/apartments/fairview-mo/rolling-rock/Cmp9Cc/">
+          <article data-c11n-component="PropertyCard.Root" aria-label="Rolling Rock">
+            <div>$1,775 - $1,875</div>
+            <div>Rolling Rock</div>
+            <img src="https://photos.zillowstatic.com/fp/eee5555555555555555555555555555e-p_i.jpg" alt="">
+          </article>
+        </a>
+      </div>
+    </li>
+  </ul>
+</div>

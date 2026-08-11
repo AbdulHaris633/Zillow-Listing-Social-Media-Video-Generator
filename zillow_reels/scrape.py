@@ -38,7 +38,7 @@ from typing import Any, Iterator
 import requests
 from bs4 import BeautifulSoup
 
-from .models import Listing, Photo, _clean
+from .models import Listing, Photo, _as_number, _clean
 
 # Markers that mean "you were blocked", not "this listing has no data".
 BLOCK_MARKERS = (
@@ -662,6 +662,144 @@ def _photos_from_dom(soup: BeautifulSoup) -> list[Photo]:
     return photos
 
 
+# Photos belonging to *other* properties. A building page ends with a "Nearby
+# apartments for rent" carousel whose cards carry full-size photos; scooping
+# those up would put a competitor's house in the middle of the slideshow.
+FOREIGN_PHOTO_ANCESTORS = (
+    "[data-test-id='mini-list-card-container']",
+    "[data-c11n-component='PropertyCard.Root']",
+    "[data-testid='listing-agent-container']",  # the management company's logo
+)
+
+
+def _photos_from_building_dom(soup: BeautifulSoup) -> list[Photo]:
+    """Gallery images on a building page, minus everything that isn't this building.
+
+    Building pages use plain <img> rather than the <picture>/srcset markup the
+    homedetails gallery uses, so there is no width to compare — the served URL
+    is taken as-is.
+    """
+    foreign: set[int] = set()
+    for selector in FOREIGN_PHOTO_ANCESTORS:
+        for block in soup.select(selector):
+            for image in block.find_all("img"):
+                foreign.add(id(image))
+
+    photos: list[Photo] = []
+    seen: set[str] = set()
+    for image in soup.find_all("img"):
+        if id(image) in foreign:
+            continue
+        url = image.get("src") or ""
+        if "photos.zillowstatic.com" not in url:
+            continue
+        key = photo_key(url)
+        if key in seen:
+            continue
+        seen.add(key)
+        photos.append(Photo(url=url, caption=_clean(image.get("alt") or "")))
+    return photos
+
+
+def _units_from_building_dom(soup: BeautifulSoup) -> dict[str, Any]:
+    """Cheapest available unit: rent, beds, baths, sqft.
+
+    A building has no single price — it has a table of units. The cheapest one
+    is what Zillow itself headlines ("2 bed $1,014+"), so it is what the video
+    should quote.
+    """
+    best: dict[str, Any] = {}
+    best_rent: float | None = None
+
+    for row in soup.select("[data-test-id='unit-table-row']"):
+        cells = row.find_all("td")
+        text = _clean(row.get_text(" "))
+
+        money = re.search(r"\$[\d,]+", text)
+        if not money:
+            continue
+        rent = _as_number(money.group(0))
+        if rent is None or (best_rent is not None and rent >= best_rent):
+            continue
+
+        unit: dict[str, Any] = {"price": rent}
+        # "$1,014+" — the plus is Zillow's own hedge that fees may push it up,
+        # so it is kept in the text shown on screen rather than quietly dropped.
+        unit["price_text"] = f"{money.group(0)}{'+' if money.group(0) + '+' in text else ''}/mo"
+        if beds := re.search(r"([\d.]+)\s*bd\b", text):
+            unit["beds"] = beds.group(1)
+        if baths := re.search(r"([\d.]+)\s*ba\b", text):
+            unit["baths"] = baths.group(1)
+        # Sqft is a bare number in its own cell; the regex above would happily
+        # match the rent digits, so read the column instead.
+        if len(cells) >= 2 and (sqft := re.fullmatch(r"[\d,]+", _clean(cells[1].get_text()))):
+            unit["sqft"] = sqft.group(0)
+
+        best, best_rent = unit, rent
+
+    return best
+
+
+def parse_building_dom(soup: BeautifulSoup) -> tuple[Listing | None, str]:
+    """Apartment and building pages (zillow.com/apartments/...).
+
+    A different page type from a for-sale home, and a different vintage of
+    markup: it mixes `data-test-id` (hyphenated) with `data-testid`, and keeps
+    unhashed legacy classes on the agent block. Crucially its <h1> is the
+    *building name*, not the address — parse_dom's heading fallback reads that
+    as the street, which is why these pages came back with a name where the
+    address should be and nothing else at all.
+    """
+    title = soup.select_one("[data-test-id='bdp-building-title']")
+    address = soup.select_one("[data-test-id='bdp-building-address']")
+    if not (title or address):
+        return None, ""
+
+    data: dict[str, Any] = {}
+    if address:
+        data["address"] = _clean(address.get_text())
+    data.update(_units_from_building_dom(soup))
+
+    # Rentals are listed by a management company, in a block that predates the
+    # data-testid convention and still uses stable, unhashed class names.
+    if agent := soup.select_one(".ds-listing-agent-display-name"):
+        data["agent_name"] = _clean(agent.get_text())
+    for line in soup.select(".ds-listing-agent-info-text"):
+        text = _clean(line.get_text())
+        if re.search(r"\d{3}[-.\s]?\d{3,4}", text):
+            data.setdefault("agent_phone", text)
+            break
+
+    # "What's special" is a heading followed by an <article>; the copy carries
+    # only hashed classes, so anchor on the heading and walk forward.
+    for heading in soup.find_all(["h2", "h3"]):
+        if not re.match(r"what'?.?s special", _clean(heading.get_text()), re.I):
+            continue
+        article = heading.find_next("article")
+        if not article:
+            continue
+        # Drop the "Show more" button so its label doesn't land in the copy.
+        for button in article.find_all("button"):
+            button.decompose()
+        data["description"] = _clean(article.get_text(" "))
+        break
+
+    for chip in soup.select("span.c11n-semantic"):
+        text = _clean(chip.get_text())
+        if re.fullmatch(r"(Apartment|Condo|Townhouse|House|Multi[- ]family)\b.*", text, re.I):
+            data.setdefault("home_type", text)
+            break
+
+    data.setdefault("status", "FOR_RENT")
+
+    listing = Listing.from_dict(data)
+    listing.photos = _photos_from_building_dom(soup)
+
+    if not (listing.street or listing.price or listing.photos):
+        return None, ""
+    return listing, "building"
+
+
 def parse_dom(soup: BeautifulSoup) -> tuple[Listing | None, str]:
     """Read the rendered page via its data-testid hooks.
 
@@ -794,7 +932,10 @@ def parse_html(html: str) -> ScrapeResult:
     captioned_photos: list[Photo] = []
 
     # Richest first: later parsers only fill in what earlier ones missed.
-    for parser in (parse_next_data, parse_dom, parse_json_ld, parse_meta):
+    # parse_building_dom outranks parse_dom because on a building page the two
+    # disagree about the address, and parse_dom is the one that is wrong — it
+    # reads the <h1> building name as the street.
+    for parser in (parse_next_data, parse_building_dom, parse_dom, parse_json_ld, parse_meta):
         try:
             listing, source = parser(soup)
         except Exception as exc:  # noqa: BLE001 - one bad parser must not sink the run
