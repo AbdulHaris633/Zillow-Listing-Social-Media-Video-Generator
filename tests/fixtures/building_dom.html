@@ -22,6 +22,7 @@
   <div data-test-id="bdp-units-table-for-rent" id="bdp-building-units-table">
     <h4>Available units</h4>
     <button type="button" data-testid="bed-button-2 bed"><span>2 bed <span>$1,014+</span></span></button>
+    <!-- Each row is wrapped in its own <tbody>, as Zillow emits them. -->
     <table aria-label="unit-table">
       <thead><tr><th>Unit</th><th>Sqft</th><th>Avail.</th><th>Base rent</th></tr></thead>
       <tbody>
@@ -34,9 +35,12 @@
           </td>
           <td>1,140</td><td>Now</td><td>$1,395+</td>
         </tr>
+      </tbody>
+      <tbody>
+        <!-- Unit named by number rather than layout, as larger buildings do. -->
         <tr data-test-id="unit-table-row">
           <td>
-            <span>2 Bedroom</span>
+            <span>604</span>
             <img class="bdp-dVzwcO" src="https://photos.zillowstatic.com/fp/bbb2222222222222222222222222222b-f_b.jpg">
             <p>2 bd, 1 ba</p>
             <span data-testid="photo-count">8 photos</span>
@@ -48,6 +52,13 @@
   </div>
 
   <h2 data-c11n-component="Heading">What's special</h2>
+  <!-- An amenity card sits between the heading and the copy; the parser has to
+       walk past it to the <article> rather than take the next sibling. -->
+  <div data-c11n-component="Card.Root" class="c11n bdp-jTWvec">
+    <div><span data-c11n-component="Tag.Root"><span>Clubhouse</span></span></div>
+    <div><span>Get the party started</span></div>
+    <div><span>This building features a clubhouse. Less than </span><b>2%</b><span> of buildings have this amenity.</span></div>
+  </div>
   <article>
     <div class="bdp-gNOQHw" style="--max-height: 144px;">Willow Bend Estates II is a Senior Community in Fairview, Missouri with an abundance of apartment and community amenities. We are located near grocery stores, pharmacies, banks, restaurants and doctor's offices. The surrounding community provides modern conveniences designed to complement your lifestyle.</div>
     <button data-c11n-component="TextButton.Root" type="button"><span>Show more</span></button>
@@ -59,8 +70,8 @@
       <img class="ds-listing-agent-image" alt="Prairie Oak Management Inc." src="https://photos.zillowstatic.com/fp/ccc3333333333333333333333333333c-r_a.jpg">
     </div>
     <ul class="ds-listing-agent-info">
-      <li><span class="ds-listing-agent-display-name">Prairie Oak Management Inc.</span></li>
-      <li><span class="ds-listing-agent-business-name"></span></li>
+      <li><span class="ds-listing-agent-display-name">Leasing Agent</span></li>
+      <li><span class="ds-listing-agent-business-name">Prairie Oak Management</span></li>
       <li class="ds-listing-agent-info-text">(573) 555-0142</li>
     </ul>
   </div>

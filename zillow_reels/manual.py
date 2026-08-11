@@ -227,6 +227,11 @@ def review_listing(listing: Listing, cfg=None) -> Listing:
             setattr(listing, field_name, getattr(patch, field_name))
         if attr == "price":
             listing.price, listing.price_text = patch.price, patch.price_text
+        # A typed value replaces any scraped range: leaving beds_text at "1-2"
+        # after someone corrects Beds to 3 would put the stale range on screen,
+        # since the *_text override outranks the number it was derived from.
+        if attr in ("beds", "baths", "sqft"):
+            setattr(listing, f"{attr}_text", "")
 
 
 def parse_number_list(text: str, limit: int) -> list[int]:

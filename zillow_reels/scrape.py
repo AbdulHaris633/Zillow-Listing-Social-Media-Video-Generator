@@ -358,8 +358,13 @@ def fetch_browser(
             # Behave like a reader: pause, scroll, pause. Zillow lazy-loads the
             # gallery, so this also materialises photos the DOM parser wants.
             page.wait_for_timeout(random.randint(1200, 2200))
-            for _ in range(3):
-                page.mouse.wheel(0, random.randint(600, 1200))
+            # Far enough to reach the bottom of a long building page. Zillow
+            # renders sections as they approach the viewport, and the agent
+            # block sits below the units table, the description and the facts
+            # list — three scrolls left it unrendered, so rentals came back
+            # with no management company at all.
+            for _ in range(8):
+                page.mouse.wheel(0, random.randint(900, 1600))
                 page.wait_for_timeout(random.randint(400, 900))
             page.wait_for_timeout(random.randint(800, 1500))
             html = page.content()
@@ -701,43 +706,75 @@ def _photos_from_building_dom(soup: BeautifulSoup) -> list[Photo]:
     return photos
 
 
-def _units_from_building_dom(soup: BeautifulSoup) -> dict[str, Any]:
-    """Cheapest available unit: rent, beds, baths, sqft.
+def _span(values: list[float], fmt) -> str:
+    """'1' when every unit agrees, '1-2' when they don't. '' when empty."""
+    if not values:
+        return ""
+    low, high = min(values), max(values)
+    return fmt(low) if low == high else f"{fmt(low)}-{fmt(high)}"
 
-    A building has no single price — it has a table of units. The cheapest one
-    is what Zillow itself headlines ("2 bed $1,014+"), so it is what the video
-    should quote.
+
+def _units_from_building_dom(soup: BeautifulSoup) -> dict[str, Any]:
+    """Summarise the whole availability table, not one row of it.
+
+    A building has no single price, bed count or floor area — it has a table of
+    units. Quoting the cheapest row alone undersells a building that also has
+    larger units: Tiger Village would read "1 bd · 513 sq ft · $1,012/mo" when
+    Zillow itself headlines it "1-2 beds" and "$1,012 - $1,304". So each stat
+    becomes a range whenever the units disagree.
+
+    The numeric fields keep the low end, because they are what the required-
+    field gate and any sorting look at; the *_text fields carry the range and
+    win on screen.
     """
-    best: dict[str, Any] = {}
-    best_rent: float | None = None
+    rents: list[float] = []
+    beds: list[float] = []
+    baths: list[float] = []
+    sqfts: list[float] = []
+    hedged = False  # Zillow's "+" — fees may push the quoted rent higher
 
     for row in soup.select("[data-test-id='unit-table-row']"):
         cells = row.find_all("td")
         text = _clean(row.get_text(" "))
 
-        money = re.search(r"\$[\d,]+", text)
+        money = re.search(r"\$[\d,]+\+?", text)
         if not money:
             continue
         rent = _as_number(money.group(0))
-        if rent is None or (best_rent is not None and rent >= best_rent):
+        if rent is None:
             continue
+        rents.append(rent)
+        hedged = hedged or money.group(0).endswith("+")
 
-        unit: dict[str, Any] = {"price": rent}
-        # "$1,014+" — the plus is Zillow's own hedge that fees may push it up,
-        # so it is kept in the text shown on screen rather than quietly dropped.
-        unit["price_text"] = f"{money.group(0)}{'+' if money.group(0) + '+' in text else ''}/mo"
-        if beds := re.search(r"([\d.]+)\s*bd\b", text):
-            unit["beds"] = beds.group(1)
-        if baths := re.search(r"([\d.]+)\s*ba\b", text):
-            unit["baths"] = baths.group(1)
-        # Sqft is a bare number in its own cell; the regex above would happily
-        # match the rent digits, so read the column instead.
-        if len(cells) >= 2 and (sqft := re.fullmatch(r"[\d,]+", _clean(cells[1].get_text()))):
-            unit["sqft"] = sqft.group(0)
+        if match := re.search(r"([\d.]+)\s*bd\b", text):
+            if (value := _as_number(match.group(1))) is not None:
+                beds.append(value)
+        if match := re.search(r"([\d.]+)\s*ba\b", text):
+            if (value := _as_number(match.group(1))) is not None:
+                baths.append(value)
+        # Sqft is a bare number in its own column. A regex over the row text
+        # would match the rent's digits just as happily, so read the cell.
+        if len(cells) >= 2 and re.fullmatch(r"[\d,]+", _clean(cells[1].get_text())):
+            if (value := _as_number(_clean(cells[1].get_text()))) is not None:
+                sqfts.append(value)
 
-        best, best_rent = unit, rent
+    if not rents:
+        return {}
 
-    return best
+    money_fmt = lambda v: f"${int(round(v)):,}"  # noqa: E731
+    count_fmt = lambda v: f"{v:g}"  # noqa: E731 - 1.0 -> "1", 1.5 -> "1.5"
+
+    data: dict[str, Any] = {
+        "price": min(rents),
+        "price_text": f"{_span(rents, money_fmt)}{'+' if hedged else ''}/mo",
+    }
+    if beds:
+        data["beds"], data["beds_text"] = min(beds), _span(beds, count_fmt)
+    if baths:
+        data["baths"], data["baths_text"] = min(baths), _span(baths, count_fmt)
+    if sqfts:
+        data["sqft"], data["sqft_text"] = min(sqfts), _span(sqfts, lambda v: f"{int(v):,}")
+    return data
 
 
 def parse_building_dom(soup: BeautifulSoup) -> tuple[Listing | None, str]:
@@ -764,6 +801,11 @@ def parse_building_dom(soup: BeautifulSoup) -> tuple[Listing | None, str]:
     # data-testid convention and still uses stable, unhashed class names.
     if agent := soup.select_one(".ds-listing-agent-display-name"):
         data["agent_name"] = _clean(agent.get_text())
+    # The display name is often a role ("Leasing Agent") rather than a person,
+    # which makes the company beside it the useful half of the attribution.
+    if company := soup.select_one(".ds-listing-agent-business-name"):
+        if text := _clean(company.get_text()):
+            data["brokerage"] = text
     for line in soup.select(".ds-listing-agent-info-text"):
         text = _clean(line.get_text())
         if re.search(r"\d{3}[-.\s]?\d{3,4}", text):

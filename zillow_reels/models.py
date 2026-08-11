@@ -103,6 +103,12 @@ class Listing:
     beds: float | None = None
     baths: float | None = None
     sqft: float | None = None
+    # Display overrides for the three stats above, used where one number is a
+    # lie: an apartment building spans "1-2" beds and "513-717" sq ft. The
+    # numeric fields keep the low end so sorting and gating still work.
+    beds_text: str = ""
+    baths_text: str = ""
+    sqft_text: str = ""
     lot_size: str = ""
     year_built: str = ""
     home_type: str = ""
@@ -166,12 +172,21 @@ class Listing:
     def stats(self) -> list[tuple[str, str]]:
         """(value, label) pills for the title card. Missing stats drop out."""
         out: list[tuple[str, str]] = []
-        if self.beds:
-            out.append((format_count(self.beds), "BEDS" if self.beds != 1 else "BED"))
-        if self.baths:
-            out.append((format_count(self.baths), "BATHS" if self.baths != 1 else "BATH"))
-        if self.sqft:
-            out.append((f"{int(self.sqft):,}", "SQ FT"))
+
+        def pill(text: str, number: float | None, singular: str, plural: str) -> None:
+            if not (text or number):
+                return
+            shown = text or format_count(number)
+            # A range is always plural ("1-2 BEDS"), but a text override that
+            # collapsed to one value is not — every unit having one bath should
+            # still read "1 BATH".
+            many = "-" in shown if text else number != 1
+            out.append((shown, plural if many else singular))
+
+        pill(self.beds_text, self.beds, "BED", "BEDS")
+        pill(self.baths_text, self.baths, "BATH", "BATHS")
+        if self.sqft_text or self.sqft:
+            out.append((self.sqft_text or f"{int(self.sqft):,}", "SQ FT"))
         return out
 
     @property
@@ -244,6 +259,9 @@ class Listing:
             beds=_as_number(get("beds", "bedrooms")),
             baths=_as_number(get("baths", "bathrooms")),
             sqft=_as_number(get("sqft", "livingArea", "square_feet", "livingAreaValue")),
+            beds_text=_clean(get("beds_text")),
+            baths_text=_clean(get("baths_text")),
+            sqft_text=_clean(get("sqft_text")),
             lot_size=_clean(get("lot_size", "lotSize")),
             year_built=_clean(get("year_built", "yearBuilt")),
             home_type=_clean(get("home_type", "homeType", "propertyType")),

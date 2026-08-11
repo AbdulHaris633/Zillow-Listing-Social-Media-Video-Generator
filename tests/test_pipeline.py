@@ -169,21 +169,41 @@ class TestBuildingDom(unittest.TestCase):
         self.assertEqual(self.listing.city, "Fairview")
         self.assertEqual(self.listing.zipcode, "65010")
 
-    def test_cheapest_available_unit_sets_the_stats(self):
-        # Two units are listed; the 2-bed at $1,014 is cheaper than the 3-bed
-        # at $1,395, and cheapest is what Zillow itself headlines.
+    def test_stats_span_the_whole_table_not_the_cheapest_row(self):
+        # A building has no single price, bed count or floor area. Quoting only
+        # the cheapest unit would advertise "2 bd · 822 sq ft · $1,014" for a
+        # building that also rents 3-bed, 1,140 sq ft units at $1,395.
+        self.assertEqual(self.listing.price_display, "$1,014-$1,395+/mo")
+        self.assertEqual(
+            self.listing.stats(),
+            [("2-3", "BEDS"), ("1-2", "BATHS"), ("822-1,140", "SQ FT")],
+        )
+
+    def test_numeric_fields_keep_the_low_end_for_gating(self):
+        # missing_required() and any sorting read the numbers, so they stay
+        # numeric; only the display goes to a range.
         self.assertEqual(self.listing.price, 1014)
-        self.assertEqual(self.listing.price_display, "$1,014+/mo")
         self.assertEqual(self.listing.beds, 2)
         self.assertEqual(self.listing.baths, 1)
         self.assertEqual(self.listing.sqft, 822)
 
+    def test_a_stat_every_unit_agrees_on_stays_singular(self):
+        # One bath across the board must read "1 BATH", not "1 BATHS".
+        single = Listing.from_dict({"baths": 1, "baths_text": "1", "beds": 2, "beds_text": "1-2"})
+        self.assertEqual(single.stats(), [("1-2", "BEDS"), ("1", "BATH")])
+
     def test_management_company_read_from_the_legacy_agent_block(self):
-        self.assertEqual(self.listing.agent_name, "Prairie Oak Management Inc.")
+        # The display name is frequently a role rather than a person, which
+        # makes the business name beside it the half worth putting on screen.
+        self.assertEqual(self.listing.agent_name, "Leasing Agent")
+        self.assertEqual(self.listing.brokerage, "Prairie Oak Management")
         self.assertEqual(self.listing.agent_phone, "(573) 555-0142")
 
-    def test_description_excludes_the_show_more_label(self):
+    def test_description_skips_the_amenity_card_above_it(self):
+        # An amenity card sits between the "What's special" heading and the
+        # copy, so the next sibling is the wrong element to read.
         self.assertTrue(self.listing.description.startswith("Willow Bend Estates II is a Senior"))
+        self.assertNotIn("Clubhouse", self.listing.description)
         self.assertNotIn("Show more", self.listing.description)
 
     def test_neighbouring_properties_are_not_scooped_into_the_gallery(self):
@@ -244,6 +264,16 @@ class TestReviewStep(unittest.TestCase):
         out = self._review(self._listing(), ["2", "$525,000", ""])
         self.assertEqual(out.price, 525000)
         self.assertEqual(out.price_display, "$525,000")
+
+    def test_editing_a_stat_clears_its_scraped_range(self):
+        # A building scrape leaves beds_text="1-2". Correcting Beds to 3 must
+        # drop that, or the stale range keeps winning on the card.
+        listing = self._listing()
+        listing.beds, listing.beds_text = 1, "1-2"
+        out = self._review(listing, ["3", "3", ""])
+        self.assertEqual(out.beds, 3)
+        self.assertEqual(out.beds_text, "")
+        self.assertIn(("3", "BEDS"), out.stats())
 
     def test_editing_the_address_resplits_its_parts(self):
         out = self._review(self._listing(), ["1", "9 Elm St, Ames, IA 50010", ""])
