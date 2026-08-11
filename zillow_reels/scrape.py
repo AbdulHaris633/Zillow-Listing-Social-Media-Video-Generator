@@ -48,6 +48,18 @@ DATE_PATTERN = (
     r"|(?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)[a-z]*\.? \d{1,2},? \d{4}"
 )
 
+# How long to wait for the price-history table after reaching the bottom of a
+# listing. It is fetched separately from the page, and on a sold listing it is
+# the only place the sale date exists. Listings without one simply time out,
+# so this is also a floor on how much slower every sold fetch becomes.
+PRICE_HISTORY_TIMEOUT = 8000  # ms
+
+# Scroll passes, each about one viewport. A listing page runs to tens of
+# thousands of pixels; the loop exits early the moment the page stops
+# moving, so this is a ceiling for the longest pages rather than a cost
+# every fetch pays.
+SCROLL_PASSES = 60
+
 # Markers that mean "you were blocked", not "this listing has no data".
 BLOCK_MARKERS = (
     "px-captcha",
@@ -380,7 +392,11 @@ def fetch_browser(
             # comps carousel and the whole facts list, and was still
             # unrendered when the HTML was read.
             try:
-                for _ in range(12):
+                # Enough passes to reach the end of a listing page, which runs
+                # to tens of thousands of pixels once the comps, the charts and
+                # the facts list have all expanded. Twelve got roughly two
+                # thirds of the way down and stopped short of price history.
+                for _ in range(SCROLL_PASSES):
                     at_bottom = page.evaluate(
                         "() => {"
                         " const before = window.scrollY;"
@@ -388,11 +404,22 @@ def fetch_browser(
                         " return window.scrollY === before;"
                         "}"
                     )
-                    page.wait_for_timeout(random.randint(250, 550))
+                    page.wait_for_timeout(random.randint(160, 320))
                     if at_bottom:
                         break
             except Exception:  # noqa: BLE001 - scrolling is best-effort
                 pass
+
+            # Price history is fetched separately once its section is
+            # approached, so reaching the bottom is not enough — the request
+            # has to come back too. A sold page carries `canShowPriceHistory`
+            # in its payload but none of the rows, and the sale date lives
+            # nowhere else, so it is worth waiting for explicitly.
+            try:
+                page.wait_for_selector("tr[label]", timeout=PRICE_HISTORY_TIMEOUT)
+            except Exception:  # noqa: BLE001 - most listings have no such table
+                pass
+
             page.wait_for_timeout(random.randint(800, 1500))
             html = page.content()
 
