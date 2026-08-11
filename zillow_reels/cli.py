@@ -256,6 +256,7 @@ def cmd_probe(args: argparse.Namespace) -> int:
         profile_dir=args.browser_profile or None,
         channel=args.browser_channel or None,
         solve_challenge=args.solve_challenge,
+        save_html=getattr(args, "save_html", "") or None,
     )
     listing = result.listing
 
@@ -273,6 +274,8 @@ def cmd_probe(args: argparse.Namespace) -> int:
         ("sqft", listing.sqft),
         ("agent", listing.agent_name),
         ("brokerage", listing.brokerage),
+        ("sold date", listing.sold_date),
+        ("buyer agent", listing.buyer_agent),
         ("photos", len(listing.photos)),
         ("description", (listing.description[:70] + "…") if len(listing.description) > 70 else listing.description),
     ):
@@ -356,6 +359,8 @@ def build_parser() -> argparse.ArgumentParser:
     probe.add_argument("--proxy", default="")
     probe.add_argument("--browser-profile", default="")
     probe.add_argument("--browser-channel", default="")
+    probe.add_argument("--save-html", default="",
+                       help="write the fetched HTML here, to see what the page actually served")
     probe.add_argument("--solve-challenge", action="store_true")
     probe.add_argument("--json", default="", help="write the extracted listing to this file")
     probe.set_defaults(func=cmd_probe)

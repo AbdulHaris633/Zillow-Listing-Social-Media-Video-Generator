@@ -1196,8 +1196,14 @@ def scrape(
     profile_dir: str | Path | None = None,
     channel: str | None = None,
     solve_challenge: bool = False,
+    save_html: str | Path | None = None,
 ) -> ScrapeResult:
-    """Fetch and parse a listing. Never raises on a block — reports it."""
+    """Fetch and parse a listing. Never raises on a block — reports it.
+
+    `save_html` writes exactly what was fetched. When a field comes back empty
+    the question is always the same — was it absent from the page, or present
+    and mis-parsed? — and that is unanswerable without the bytes.
+    """
     if html_file:
         html = Path(html_file).expanduser().read_text(encoding="utf-8", errors="replace")
         status = 200
@@ -1211,6 +1217,12 @@ def scrape(
             solve_challenge=solve_challenge,
         )
         source_note = f"{backend} HTTP {status}"
+
+    if save_html:
+        target = Path(save_html).expanduser()
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_text(html, encoding="utf-8")
+        print(f"  Saved the fetched HTML to {target} ({len(html):,} bytes)")
 
     if looks_blocked(html, status):
         return ScrapeResult(
