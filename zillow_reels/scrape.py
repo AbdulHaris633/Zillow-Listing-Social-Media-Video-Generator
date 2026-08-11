@@ -374,6 +374,25 @@ def fetch_browser(
             for _ in range(8):
                 page.mouse.wheel(0, random.randint(900, 1600))
                 page.wait_for_timeout(random.randint(400, 900))
+            # Then walk the rest of the way to the bottom. A fixed number of
+            # wheel ticks covers a fixed distance, and these pages are not a
+            # fixed length — price history sits below the Zestimate chart, the
+            # comps carousel and the whole facts list, and was still
+            # unrendered when the HTML was read.
+            try:
+                for _ in range(12):
+                    at_bottom = page.evaluate(
+                        "() => {"
+                        " const before = window.scrollY;"
+                        " window.scrollBy(0, window.innerHeight * 0.9);"
+                        " return window.scrollY === before;"
+                        "}"
+                    )
+                    page.wait_for_timeout(random.randint(250, 550))
+                    if at_bottom:
+                        break
+            except Exception:  # noqa: BLE001 - scrolling is best-effort
+                pass
             page.wait_for_timeout(random.randint(800, 1500))
             html = page.content()
 
@@ -865,6 +884,54 @@ def parse_building_dom(soup: BeautifulSoup) -> tuple[Listing | None, str]:
     return listing, "building"
 
 
+def _parse_date(text: str):
+    """'8/11/2026' or 'August 6, 2026' to a date, or None if neither."""
+    from datetime import datetime
+
+    text = _clean(text).replace(",", "")
+    for fmt in ("%m/%d/%Y", "%m/%d/%y", "%m-%d-%Y", "%B %d %Y", "%b %d %Y"):
+        try:
+            return datetime.strptime(text, fmt).date()
+        except ValueError:
+            continue
+    return None
+
+
+def _sale_from_price_history(soup: BeautifulSoup) -> dict[str, Any]:
+    """The most recent Sold row from the price-history table.
+
+    Each row carries a `label` attribute summarising itself —
+    "Date: 8/11/2026, Event: Sold, Price: $600,000 (+41.2%)" — which is far
+    steadier than reading the cells, and distinguishes a sale from the
+    "Listing removed" and "Listed for rent" rows sitting beside it.
+
+    Rows are picked by date rather than by position. Zillow happens to sort
+    newest-first today, but a listing's *latest* sale is what a "just sold"
+    post is about, and that should not rest on the sort order holding.
+    """
+    best_date = None
+    best: dict[str, Any] = {}
+
+    for row in soup.select("tr[label]"):
+        label = _clean(row.get("label"))
+        if not re.search(r"Event:\s*Sold\b", label, re.I):
+            continue
+        date_match = re.search(r"Date:\s*([^,]+)", label)
+        if not date_match:
+            continue
+        parsed = _parse_date(date_match.group(1))
+        if parsed is None or (best_date is not None and parsed <= best_date):
+            continue
+        best_date = parsed
+        best = {"sold_date": _clean(date_match.group(1))}
+        # A sold page often shows "Price Unknown" in its header while the
+        # history still carries the figure, so this is worth keeping.
+        if price := re.search(r"Price:\s*(\$[\d,]+)", label):
+            best["sold_price_text"] = price.group(1)
+
+    return best
+
+
 def parse_dom(soup: BeautifulSoup) -> tuple[Listing | None, str]:
     """Read the rendered page via its data-testid hooks.
 
@@ -953,18 +1020,21 @@ def parse_dom(soup: BeautifulSoup) -> tuple[Listing | None, str]:
     # "Sold 08/06/2026" in the price-history table, or the same fact spelled
     # out in the listing details. Sold pages put it in one place or the other
     # depending on how much history the MLS released.
-    for row in soup.select("tr, li, span, p"):
-        text = _clean(row.get_text(" "))
-        # Short rows only: a whole page of text mentions "sold" somewhere and
-        # would pair it with the first unrelated date on the page.
-        if len(text) > 80 or "sold" not in text.lower():
-            continue
-        # The date sits either side of the word depending on the layout — a
-        # price-history row leads with it, a sentence trails it — so match the
-        # date on its own rather than anchoring to "sold".
-        if match := re.search(DATE_PATTERN, text):
-            data.setdefault("sold_date", match.group(0))
-            break
+    data.update(_sale_from_price_history(soup))
+
+    if "sold_date" not in data:
+        for row in soup.select("tr, li, span, p"):
+            text = _clean(row.get_text(" "))
+            # Short rows only: a whole page of text mentions "sold" somewhere
+            # and would pair it with the first unrelated date on the page.
+            if len(text) > 80 or "sold" not in text.lower():
+                continue
+            # The date sits either side of the word depending on the layout —
+            # a price-history row leads with it, a sentence trails it — so
+            # match the date on its own rather than anchoring to "sold".
+            if match := re.search(DATE_PATTERN, text):
+                data["sold_date"] = match.group(0)
+                break
 
     # Zillow's own "Bought with:" block, which carries no testid of its own —
     # only the label beside it identifies the buyer's side of the sale.
@@ -1006,6 +1076,12 @@ def parse_dom(soup: BeautifulSoup) -> tuple[Listing | None, str]:
                 data.setdefault("lot_size", text)
             elif re.search(r"(residence|house|condo|townhouse|apartment|land)", text, re.I):
                 data.setdefault("home_type", text)
+
+    # A sold page's header reads "Price Unknown" wherever the sale price was
+    # never released, but the history row often still carries the figure.
+    sold_price = data.pop("sold_price_text", "")
+    if sold_price and _as_number(data.get("price")) is None:
+        data["price"] = sold_price
 
     listing = Listing.from_dict(data)
     listing.photos = _photos_from_dom(soup)

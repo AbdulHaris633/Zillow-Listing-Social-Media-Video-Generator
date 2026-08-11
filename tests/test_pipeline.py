@@ -201,6 +201,45 @@ class TestSoldDom(unittest.TestCase):
         self.assertEqual(self.listing.missing_required(), ["price"])
         self.assertEqual(self.listing.missing_required(("address", "photos")), [])
 
+    @staticmethod
+    def _history(*rows: str) -> str:
+        body = "".join(f'<tr label="{r}"><td>x</td></tr>' for r in rows)
+        return f'<h1>1 A St, Brooklyn, NY 11216</h1><table><tbody>{body}</tbody></table>'
+
+    def test_price_history_picks_the_most_recent_sale(self):
+        # Each row summarises itself in a `label` attribute, which is steadier
+        # than reading cells and distinguishes a sale from its neighbours.
+        # Deliberately out of order: picking row one would give 2024.
+        listing = parse_html(self._history(
+            "Date: 10/15/2024, Event: Sold, Price: $100 (-100%)",
+            "Date: 8/11/2026, Event: Sold, Price: $600,000 (+41.2%)",
+            "Date: 1/20/2026, Event: Sold, Price: $425,000",
+        )).listing
+        self.assertEqual(listing.sold_date, "8/11/2026")
+
+    def test_price_history_ignores_events_that_are_not_sales(self):
+        listing = parse_html(self._history(
+            "Date: 11/18/2022, Event: Listing removed, Price: -- null",
+            "Date: 10/27/2022, Event: Listed for rent, Price: $3,200 (+45.5%)",
+        )).listing
+        self.assertEqual(listing.sold_date, "")
+
+    def test_sale_price_recovered_from_the_history_row(self):
+        # The header can read "Price Unknown" while the history still carries
+        # the figure — worth having, since it is the whole point of the post.
+        listing = parse_html(
+            '<span data-testid="price">Price Unknown</span>'
+            + self._history("Date: 8/11/2026, Event: Sold, Price: $600,000 (+41.2%)")
+        ).listing
+        self.assertEqual(listing.price_display, "$600,000")
+
+    def test_a_header_price_still_beats_the_history(self):
+        listing = parse_html(
+            '<span data-testid="price">$610,000</span>'
+            + self._history("Date: 8/11/2026, Event: Sold, Price: $600,000")
+        ).listing
+        self.assertEqual(listing.price_display, "$610,000")
+
     def test_prose_sold_date_is_not_mangled_by_ignorecase(self):
         # [A-Z][a-z]+ under re.IGNORECASE matches lowercase too, which turned
         # "August 6, 2026" into "st 6, 2026".
