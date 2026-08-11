@@ -13,6 +13,7 @@ import tempfile
 from pathlib import Path
 from typing import Any
 
+from .cards import UNITS_PER_CARD
 from .models import Listing, Photo, format_count
 
 INSTRUCTIONS = [
@@ -197,13 +198,25 @@ def review_listing(listing: Listing, cfg=None) -> Listing:
         if captioned:
             photo_note += f" · {captioned} captioned"
         print(f"     p  {'Photos':<13} {photo_note}")
+
+        # Rentals only. The units become their own card(s) in the video, so
+        # they belong in the summary of what is about to be rendered.
+        if listing.units:
+            pages = -(-len(listing.units) // UNITS_PER_CARD)
+            note = f"{len(listing.units)}"
+            if listing.price_display:
+                note += f" · {listing.price_display}"
+            note += f" · {pages} card{'s' if pages != 1 else ''} in the video"
+            print(f"     u  {'Units':<13} {note}")
         print("─" * 74)
 
         missing = listing.missing_required()
         if missing:
             print(f"  Still needed before rendering: {', '.join(missing)}")
 
-        choice = input("  Enter = build the video · number = edit · p = photos · q = quit: ").strip()
+        prompt = "  Enter = build the video · number = edit · p = photos · "
+        prompt += "u = units · " if listing.units else ""
+        choice = input(prompt + "q = quit: ").strip()
 
         if not choice:
             if missing:
@@ -214,6 +227,9 @@ def review_listing(listing: Listing, cfg=None) -> Listing:
             raise KeyboardInterrupt
         if choice.lower() == "p":
             _review_photos(listing, cfg)
+            continue
+        if choice.lower() == "u" and listing.units:
+            _review_units(listing)
             continue
 
         if not choice.isdigit() or not 1 <= int(choice) <= len(REVIEW_FIELDS):
@@ -264,6 +280,59 @@ def parse_number_list(text: str, limit: int) -> list[int]:
             picked.append(int(chunk))
     seen: set[int] = set()
     return [n for n in picked if 1 <= n <= limit and not (n in seen or seen.add(n))]
+
+
+def _review_units(listing: Listing) -> None:
+    """Print the availability table exactly as the video will show it.
+
+    Read-only: the rows come straight off Zillow's own table, and a video that
+    quotes a rent the listing does not is worse than one that quotes none. Drop
+    a unit with `d` if it has gone since the page was cached.
+    """
+    while True:
+        # Mirrors render_units_cards: pages are filled evenly, not to the brim.
+        pages = -(-len(listing.units) // UNITS_PER_CARD)
+        per_page = -(-len(listing.units) // pages)
+        print()
+        for index, unit in enumerate(listing.units, 1):
+            # A rule where the card breaks, so the split is visible up front.
+            if index > 1 and (index - 1) % per_page == 0:
+                print(f"   {'─' * 56}")
+            details = " · ".join(
+                part
+                for part in (
+                    unit.layout,
+                    f"{int(unit.sqft):,} sq ft" if unit.sqft else "",
+                    unit.available,
+                )
+                if part
+            )
+            print(f"  {index:>3}. {unit.name or '—':<12} {details:<34} {unit.rent_display:>8}")
+
+        print(
+            f"\n   {len(listing.units)} unit(s) across {pages} card"
+            f"{'s' if pages != 1 else ''} · {per_page} per card"
+        )
+        choice = input("\n   d 2,4-6 = drop units  ·  Enter = back: ").strip()
+        if not choice:
+            return
+        if not choice.lower().startswith("d"):
+            print("   Not a valid choice.")
+            continue
+
+        picked = parse_number_list(choice[1:], len(listing.units))
+        if not picked:
+            print("   Nothing matched.")
+            continue
+        if len(picked) >= len(listing.units):
+            print("   That would remove every unit — keeping at least one.")
+            continue
+        listing.units = [u for i, u in enumerate(listing.units, 1) if i not in set(picked)]
+        before = listing.price_display
+        listing.resummarise_units()
+        print(f"   Dropped {len(picked)} unit(s).")
+        if listing.price_display != before:
+            print(f"   Headline updated: {before} → {listing.price_display}")
 
 
 def _review_photos(listing: Listing, cfg=None) -> None:

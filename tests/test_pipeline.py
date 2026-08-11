@@ -18,7 +18,7 @@ from PIL import Image
 from zillow_reels.cards import render_units_cards
 from zillow_reels.config import Config
 from zillow_reels.manual import load_manual, write_template
-from zillow_reels.models import Listing, Photo
+from zillow_reels.models import Listing, Photo, Unit
 from zillow_reels.scrape import looks_blocked, parse_html
 
 PROPERTY = {
@@ -278,6 +278,25 @@ class TestReviewStep(unittest.TestCase):
         out = self._review(self._listing(), ["2", "$525,000", ""])
         self.assertEqual(out.price, 525000)
         self.assertEqual(out.price_display, "$525,000")
+
+    def test_units_are_listed_and_droppable_from_the_review(self):
+        # The units become their own card(s), so the operator has to be able to
+        # see them before rendering — and drop one that has since been taken.
+        listing = self._listing()
+        listing.units = [
+            Unit(name=str(600 + i), beds=1, baths=1, sqft=513, available="Now", rent=1000 + i)
+            for i in range(4)
+        ]
+        listing.resummarise_units()
+        out = self._review(listing, ["u", "d 1", "", ""])
+        self.assertEqual([u.name for u in out.units], ["601", "602", "603"])
+        self.assertEqual(out.price_display, "$1,001-$1,003/mo")
+
+    def test_review_refuses_to_drop_every_unit(self):
+        listing = self._listing()
+        listing.units = [Unit(name="A", rent=900), Unit(name="B", rent=950)]
+        out = self._review(listing, ["u", "d 1-2", "", ""])
+        self.assertEqual(len(out.units), 2)
 
     def test_editing_a_stat_clears_its_scraped_range(self):
         # A building scrape leaves beds_text="1-2". Correcting Beds to 3 must
@@ -615,6 +634,23 @@ class TestUnitsCard(unittest.TestCase):
         })
         self.assertEqual(len(revived.units), 3)
         self.assertEqual(revived.units[0].rent_display, "$1,000")
+
+    def test_dropping_a_unit_moves_the_headline_with_it(self):
+        # Otherwise the card advertises a rent nobody can rent — the worst kind
+        # of stale, since it is the number a viewer acts on.
+        listing = self._listing(4)          # rents 1000..1003
+        listing.resummarise_units()
+        self.assertEqual(listing.price_display, "$1,000-$1,003/mo")
+        listing.units = listing.units[1:-1]  # drop cheapest and priciest
+        listing.resummarise_units()
+        self.assertEqual(listing.price_display, "$1,001-$1,002/mo")
+        self.assertEqual(listing.price, 1001)
+
+    def test_resummarise_keeps_zillows_fee_hedge(self):
+        listing = self._listing(3)
+        listing.price_text = "$1,000-$1,002+/mo"
+        listing.resummarise_units()
+        self.assertTrue(listing.price_display.endswith("+/mo"))
 
     def test_units_survive_a_merge(self):
         # asdict() flattens nested dataclasses; without care the merge would

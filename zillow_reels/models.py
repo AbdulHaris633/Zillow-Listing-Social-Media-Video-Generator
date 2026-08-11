@@ -284,6 +284,34 @@ class Listing:
 
     # --- serialisation ----------------------------------------------------
 
+    def resummarise_units(self) -> None:
+        """Recompute the headline stats from whatever units remain.
+
+        Dropping a unit in review has to move the summary with it, or the card
+        goes on advertising a rent nobody can rent — the worst possible kind of
+        stale, since it is the number a viewer acts on.
+        """
+        if not self.units:
+            return
+        hedged = self.price_text.endswith("+/mo")
+
+        def span(values: list[float], fmt) -> str:
+            low, high = min(values), max(values)
+            return fmt(low) if low == high else f"{fmt(low)}-{fmt(high)}"
+
+        rents = [u.rent for u in self.units if u.rent is not None]
+        if rents:
+            self.price = min(rents)
+            money = span(rents, lambda v: f"${int(round(v)):,}")
+            self.price_text = f"{money}{'+' if hedged else ''}/mo"
+        for attr in ("beds", "baths", "sqft"):
+            values = [getattr(u, attr) for u in self.units if getattr(u, attr) is not None]
+            if not values:
+                continue
+            setattr(self, attr, min(values))
+            fmt = (lambda v: f"{int(v):,}") if attr == "sqft" else (lambda v: f"{v:g}")
+            setattr(self, f"{attr}_text", span(values, fmt))
+
     def to_dict(self) -> dict[str, Any]:
         data = asdict(self)
         data.pop("source", None)
