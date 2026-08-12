@@ -141,6 +141,7 @@ def cmd_make(args: argparse.Namespace) -> int:
 
     cfg = _config_from_args(args)
     options = _options_from_args(args)
+    options.bucket = "reels"
 
     print(f"\nZillow Reels {__version__}")
     print(f"  Source: {args.url or args.manual or args.from_html}")
@@ -168,6 +169,7 @@ def cmd_sold(args: argparse.Namespace) -> int:
     # sorting in among active listings in Drive.
     options.write_details = True
     options.folder_prefix = "Sold"
+    options.bucket = "sold"
 
     print(f"\nZillow Reels {__version__} — sold listing")
     print(f"  Source: {args.url or args.manual or args.from_html}")
@@ -204,6 +206,7 @@ def cmd_batch(args: argparse.Namespace) -> int:
         options.manual_path = row.get("manual", "")
         options.interactive = False  # never block a batch on a prompt
         options.review = False
+        options.bucket = "reels"      # a batch renders videos, same as `make`
 
         # Any column beyond url/manual patches the scraped data for this row.
         extra = {k: v for k, v in row.items() if k not in ("url", "manual") and v}

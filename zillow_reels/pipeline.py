@@ -50,6 +50,10 @@ class RunOptions:
     # for-sale ones at a glance in Drive. `reel` leaves both alone.
     write_details: bool = False
     folder_prefix: str = ""
+    # Sub-directory of `workdir` that this kind of run owns, so videos and
+    # archived sales never land in the same listing folder. Empty writes
+    # straight to `workdir`, which is what a bare pipeline call still does.
+    bucket: str = ""
     headless: bool = True
     verbose: bool = True
     # Field-level overrides applied on top of whatever was scraped or loaded —
@@ -154,6 +158,9 @@ def run_one(options: RunOptions, cfg: Config) -> RunResult:
     # Lowercased and hyphenated to match the slug it joins; empty for `reel`,
     # which keeps the exact paths it has always written.
     stem = f"{options.folder_prefix.lower()}-{listing.slug}" if options.folder_prefix else listing.slug
+    base = Path(options.workdir).expanduser()
+    if options.bucket:
+        base = base / options.bucket
 
     # --- gate on required fields -----------------------------------------
     missing = listing.missing_required(options.required)
@@ -161,7 +168,7 @@ def run_one(options: RunOptions, cfg: Config) -> RunResult:
         result.status = "needs_input"
         result.messages.append(f"Missing required field(s): {', '.join(missing)}")
         if options.write_fallback_template:
-            workdir = Path(options.workdir).expanduser() / (stem or "unknown-listing")
+            workdir = base / (stem or "unknown-listing")
             template = manual_mod.write_template(workdir / "listing.json", listing)
             result.template_path = template
             log(f"\n  Could not get everything automatically. Missing: {', '.join(missing)}")
@@ -177,7 +184,7 @@ def run_one(options: RunOptions, cfg: Config) -> RunResult:
         result.messages.append(note)
         log(f"  - {note}")
 
-    workdir = Path(options.workdir).expanduser() / stem
+    workdir = base / stem
     workdir.mkdir(parents=True, exist_ok=True)
 
     # --- details record ----------------------------------------------------

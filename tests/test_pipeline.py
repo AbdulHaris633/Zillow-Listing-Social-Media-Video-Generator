@@ -633,6 +633,28 @@ class TestSoldArchive(unittest.TestCase):
             folders = [p.name for p in Path(tmp).iterdir()]
             self.assertEqual(folders, ["1439-zerega-avenue-bronx-ny-10462"])
 
+    def test_each_command_owns_its_bucket(self):
+        """The same address processed both ways must not collide.
+
+        A sold archive and a reel of one listing share a slug; without
+        separate buckets the second run writes into the first one's folder.
+        """
+        with tempfile.TemporaryDirectory() as tmp:
+            sold = self._run(bucket="sold", folder_prefix="Sold",
+                             write_details=True, workdir=Path(tmp))
+            self._run(bucket="reels", workdir=Path(tmp))
+
+            self.assertEqual(sorted(p.name for p in Path(tmp).iterdir()),
+                             ["reels", "sold"])
+            self.assertIn("/sold/sold-", str(sold.details_path))
+            reels = list((Path(tmp) / "reels").iterdir())
+            self.assertEqual([p.name for p in reels],
+                             ["1439-zerega-avenue-bronx-ny-10462"])
+
+    def test_bucket_is_opt_in(self):
+        """A bare pipeline call still writes straight to workdir."""
+        self.assertEqual(RunOptions().bucket, "")
+
     def test_details_survive_a_photo_failure(self):
         """The record is the deliverable, so a dead photo must not take it.
 
