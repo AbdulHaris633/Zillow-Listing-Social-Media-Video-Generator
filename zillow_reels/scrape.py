@@ -354,6 +354,45 @@ def _await_human(page, status: int, timeout: int) -> tuple[str, int]:
     return page.content(), status
 
 
+# Finds the element that scrolls *this listing*, as a JS expression returning
+# the element (or the document scroller).
+#
+# Picking the tallest overflowing element is wrong: opening a listing from a
+# search leaves the results list mounted behind the detail panel, and that list
+# is the taller of the two. Measured on a live page, the walk drove the
+# background list to 15,759px while the house panel never moved and price
+# history never rendered.
+#
+# So start from something only this listing has — its price, its address
+# heading — and climb to the nearest scrollable ancestor. That is the panel the
+# reader scrolls, whatever Zillow calls its class this month.
+_FIND_SCROLLER = """
+(() => {
+  const scrollable = (e) => {
+    if (!e || e === document.body || e === document.documentElement) return false;
+    const s = getComputedStyle(e);
+    return (s.overflowY === 'auto' || s.overflowY === 'scroll')
+        && e.scrollHeight > e.clientHeight + 200;
+  };
+  const anchor = document.querySelector(
+    '[data-testid="bed-bath-sqft-facts"], [data-testid="price"], '
+    + '[data-testid="content-container"], .layout-content-container, h1');
+  for (let e = anchor; e; e = e.parentElement) {
+    if (scrollable(e)) return e;
+  }
+  // No anchor, or none of its ancestors scroll: fall back to the document,
+  // then to the tallest overflowing element.
+  const doc = document.scrollingElement || document.documentElement;
+  if (doc.scrollHeight > doc.clientHeight + 4) return doc;
+  let best = null;
+  for (const e of document.querySelectorAll('div,main,section')) {
+    if (scrollable(e) && (!best || e.scrollHeight > best.scrollHeight)) best = e;
+  }
+  return best || doc;
+})()
+"""
+
+
 def _scroll_to_end(page) -> None:
     """Walk to the bottom of whatever actually scrolls.
 
@@ -383,23 +422,10 @@ def _scroll_to_end(page) -> None:
     try:
         for _ in range(SCROLL_PASSES):
             at_bottom = page.evaluate(
-                """() => {
-                    const doc = document.scrollingElement || document.documentElement;
-                    let el = doc;
-                    if (doc.scrollHeight <= doc.clientHeight + 4) {
-                        let best = null;
-                        for (const e of document.querySelectorAll('div,main,section')) {
-                            const s = getComputedStyle(e);
-                            if (s.overflowY !== 'auto' && s.overflowY !== 'scroll') continue;
-                            if (e.scrollHeight <= e.clientHeight + 200) continue;
-                            if (!best || e.scrollHeight > best.scrollHeight) best = e;
-                        }
-                        if (best) el = best;
-                    }
-                    const before = el.scrollTop;
-                    el.scrollTop = before + el.clientHeight * 0.9;
-                    return el.scrollTop === before;
-                }"""
+                "() => { const el = " + _FIND_SCROLLER + ";"
+                " const before = el.scrollTop;"
+                " el.scrollTop = before + el.clientHeight * 0.9;"
+                " return el.scrollTop === before; }"
             )
             if at_bottom:
                 stalls += 1
@@ -448,19 +474,7 @@ def _await_price_history(page) -> bool:
                 # Back off using the real scroller, not the window — on the
                 # desktop layout `window.scrollBy` moves nothing at all.
                 page.evaluate(
-                    """() => {
-                        const doc = document.scrollingElement || document.documentElement;
-                        let el = doc;
-                        if (doc.scrollHeight <= doc.clientHeight + 4) {
-                            for (const e of document.querySelectorAll('div,main,section')) {
-                                const s = getComputedStyle(e);
-                                if (s.overflowY !== 'auto' && s.overflowY !== 'scroll') continue;
-                                if (e.scrollHeight <= e.clientHeight + 200) continue;
-                                if (el === doc || e.scrollHeight > el.scrollHeight) el = e;
-                            }
-                        }
-                        el.scrollTop -= 1200;
-                    }"""
+                    "() => { " + _FIND_SCROLLER.strip() + ".scrollTop -= 1200; }"
                 )
                 page.wait_for_timeout(300)
                 heading.scroll_into_view_if_needed(timeout=3000)
