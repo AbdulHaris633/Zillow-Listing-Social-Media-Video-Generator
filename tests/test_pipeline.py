@@ -20,6 +20,7 @@ from zillow_reels.config import Config
 from zillow_reels.manual import details_text, load_manual, write_template
 from zillow_reels.pipeline import RunOptions, RunResult
 from zillow_reels.models import Listing, Photo, Unit
+from zillow_reels.photos import _validate
 from zillow_reels.scrape import looks_blocked, parse_html
 
 PROPERTY = {
@@ -715,6 +716,37 @@ class TestManualFallback(unittest.TestCase):
             }))
             listing = load_manual(template)
             self.assertEqual([p.path.name for p in listing.photos], ["01.jpg", "02.jpg"])
+
+
+class TestPhotoValidation(unittest.TestCase):
+    """The size floor rejects thumbnails, not orientations.
+
+    A 576x768 listing photo was being deleted for failing a width>=640 test —
+    on a tool whose output is a 1080x1920 vertical video, where portrait
+    source material is ideal.
+    """
+
+    def _check(self, size):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "p.jpg"
+            Image.new("RGB", size, (120, 140, 160)).save(path)
+            keep, _digest, _width, reason = _validate(path)
+            return keep, reason
+
+    def test_portrait_photos_are_kept(self):
+        for size in [(576, 768), (1080, 1920), (400, 640)]:
+            keep, reason = self._check(size)
+            self.assertTrue(keep, f"{size} rejected: {reason}")
+
+    def test_landscape_photos_are_kept(self):
+        for size in [(768, 576), (1536, 1024), (640, 400)]:
+            self.assertTrue(self._check(size)[0], size)
+
+    def test_thumbnails_are_still_rejected(self):
+        for size in [(384, 256), (200, 300), (1, 1), (639, 400)]:
+            keep, reason = self._check(size)
+            self.assertFalse(keep, size)
+            self.assertIn("too small", reason)
 
 
 class TestRender(unittest.TestCase):

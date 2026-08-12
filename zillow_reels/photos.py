@@ -21,8 +21,13 @@ from PIL import Image, UnidentifiedImageError
 from .models import Photo
 from .scrape import HEADERS
 
-MIN_WIDTH = 640
-MIN_HEIGHT = 400
+# Judged per edge rather than per axis, because a listing photo may be
+# portrait and the point is to reject thumbnails, not orientations. The old
+# width>=640/height>=400 pair silently deleted a perfectly good 576x768 shot —
+# on a tool whose output is a 1080x1920 vertical video, where portrait source
+# material is the best input there is.
+MIN_LONG_EDGE = 640
+MIN_SHORT_EDGE = 400
 
 
 def _safe_stem(index: int, caption: str) -> str:
@@ -66,9 +71,11 @@ def _validate(path: Path) -> tuple[bool, str, int, str]:
             img.verify()
         with Image.open(path) as img:
             width, height = img.size
-            if width < MIN_WIDTH or height < MIN_HEIGHT:
+            long_edge, short_edge = max(width, height), min(width, height)
+            if long_edge < MIN_LONG_EDGE or short_edge < MIN_SHORT_EDGE:
                 return False, "", width, (
-                    f"too small ({width}x{height}, need {MIN_WIDTH}x{MIN_HEIGHT})"
+                    f"too small ({width}x{height}, need {MIN_LONG_EDGE}x{MIN_SHORT_EDGE} "
+                    f"in either orientation)"
                 )
             # Hash a downscaled copy so re-encodes of the same photo collide.
             thumb = img.convert("RGB").resize((32, 32))
