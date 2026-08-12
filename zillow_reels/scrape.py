@@ -60,6 +60,11 @@ PRICE_HISTORY_ATTEMPTS = 3
 # moving, so this is a ceiling for the longest pages rather than a cost
 # every fetch pays.
 SCROLL_PASSES = 60
+# Consecutive motionless passes before the walk is treated as finished. More
+# than one, because a page that has not built its scroller yet is motionless
+# for reasons that have nothing to do with reaching the bottom.
+SCROLL_STALL_LIMIT = 5
+SCROLL_STALL_WAIT = 900  # ms to let a still-assembling page grow
 
 # Markers that mean "you were blocked", not "this listing has no data".
 BLOCK_MARKERS = (
@@ -317,7 +322,17 @@ def _scroll_to_end(page) -> None:
     overflowing element. Height is re-read every pass because these pages grow
     as they load (one ran 6,080 -> 9,126px mid-scroll), and a bottom computed
     once is the wrong bottom.
+
+    A single motionless pass does not mean the bottom. Early on the layout
+    container does not exist yet — measured on a live listing, no scrollable
+    element is present at 1s — so the document looks unscrollable and one
+    stuck pass would end the walk before it started. Everything else on the
+    page comes from __NEXT_DATA__ in the initial HTML and still parses, which
+    is why the symptom was a listing complete except for its sold date. So
+    require several consecutive stalls, waiting longer after each, and keep
+    re-looking for the scroller in between.
     """
+    stalls = 0
     try:
         for _ in range(SCROLL_PASSES):
             at_bottom = page.evaluate(
@@ -339,9 +354,15 @@ def _scroll_to_end(page) -> None:
                     return el.scrollTop === before;
                 }"""
             )
-            page.wait_for_timeout(random.randint(160, 320))
             if at_bottom:
-                break
+                stalls += 1
+                if stalls >= SCROLL_STALL_LIMIT:
+                    break
+                # Give a page that is still assembling itself time to grow.
+                page.wait_for_timeout(SCROLL_STALL_WAIT)
+                continue
+            stalls = 0
+            page.wait_for_timeout(random.randint(160, 320))
     except Exception:  # noqa: BLE001 - scrolling is best-effort
         pass
 
