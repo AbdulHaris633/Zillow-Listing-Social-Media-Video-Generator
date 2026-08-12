@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import json
 import tempfile
+from datetime import datetime
 from pathlib import Path
 from typing import Any
 
@@ -180,6 +181,47 @@ def _display_value(listing: Listing, attr: str, width: int = 66) -> str:
         value = format_count(value)
     text = str(value)
     return text if len(text) <= width else text[: width - 1] + "…"
+
+
+def details_text(listing: Listing) -> str:
+    """The scraped facts as a plain-text record, to file beside the photos.
+
+    A sold listing is a record rather than an advertisement: there is no video
+    carrying the numbers, so without this the closing details would live only
+    in a terminal that eventually gets closed. Built from REVIEW_FIELDS so the
+    file always says what the review table said.
+
+    Blank fields are dropped instead of printed as "(missing)" — an archived
+    record should assert only what is known.
+    """
+    sold = bool(listing.sold_date or listing.buyer_agent or "SOLD" in (listing.status or "").upper())
+    heading = listing.address or listing.street or "Untitled Listing"
+    lines = [heading, "=" * len(heading), ""]
+
+    for attr, label in REVIEW_FIELDS:
+        if attr in ("address", "description"):  # already the heading / goes below
+            continue
+        if attr in SOLD_FIELDS and not sold:
+            continue
+        value = _display_value(listing, attr, width=10_000)
+        if value:
+            lines.append(f"{label:<18} {value}")
+
+    if listing.photos:
+        lines.append(f"{'Photos':<18} {len(listing.photos)}")
+    if listing.units:
+        lines.append("")
+        lines.append("Units")
+        lines.append("-----")
+        for unit in listing.units:
+            parts = [p for p in (unit.name, unit.layout, unit.rent_display, unit.available) if p]
+            lines.append("  " + " · ".join(parts))
+    if listing.description:
+        lines.extend(["", "Description", "-----------", listing.description])
+    if listing.url:
+        lines.extend(["", f"Source: {listing.url}"])
+    lines.append(f"Saved:  {datetime.now():%Y-%m-%d %H:%M}")
+    return "\n".join(lines) + "\n"
 
 
 def review_listing(listing: Listing, cfg=None, required: tuple[str, ...] = ("address", "price", "photos")) -> Listing:

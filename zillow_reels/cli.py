@@ -116,10 +116,12 @@ def _report(result: RunResult) -> None:
 
     print(f"  DONE  {listing.address}")
     if result.video_path:
-        print(f"    video:  {result.video_path}")
-    print(f"    photos: {len(result.photo_paths)}")
+        print(f"    {'video:':<9}{result.video_path}")
+    print(f"    {'photos:':<9}{len(result.photo_paths)}")
+    if result.details_path:
+        print(f"    {'details:':<9}{result.details_path}")
     if result.drive.get("folder_url"):
-        print(f"    drive:  {result.drive['folder_url']}")
+        print(f"    {'drive:':<9}{result.drive['folder_url']}")
 
 
 # --------------------------------------------------------------------------
@@ -155,6 +157,11 @@ def cmd_sold(args: argparse.Namespace) -> int:
     # every such listing into the manual template for a field that does not
     # exist, so the archive job asks only for an address and photos.
     options.required = ("address", "photos")
+    # No video means the facts would otherwise survive only on screen, so they
+    # are filed alongside the photos. The prefix keeps closed deals from
+    # sorting in among active listings in Drive.
+    options.write_details = True
+    options.folder_prefix = "Sold"
 
     print(f"\nZillow Reels {__version__} — sold listing")
     print(f"  Source: {args.url or args.manual or args.from_html}")

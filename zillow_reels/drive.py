@@ -218,8 +218,13 @@ def upload_listing(
     parent_folder_id: str | None = None,
     console: bool = False,
     verbose: bool = True,
+    extra_files: list[Path] | None = None,
 ) -> dict:
-    """Create '<address>/' with the MP4 and a 'Photos/' subfolder inside it."""
+    """Create '<address>/' with the MP4 and a 'Photos/' subfolder inside it.
+
+    `extra_files` land in that top folder beside the video — a sold run has no
+    video and files its details record here instead.
+    """
     client = DriveClient.from_config(cfg, client_secrets, console=console)
     parent = parent_folder_id or cfg.drive_parent_folder_id or None
 
@@ -231,6 +236,17 @@ def upload_listing(
             print(f"    uploading {Path(video_path).name}…")
         uploaded = client.upload_file(video_path, folder_id)
         result["video_url"] = uploaded.get("webViewLink", "")
+
+    for extra in extra_files or []:
+        if not extra or not Path(extra).exists():
+            continue
+        if verbose:
+            print(f"    uploading {Path(extra).name}…")
+        try:
+            sent = client.upload_file(extra, folder_id)
+            result["details_url"] = sent.get("webViewLink", "")
+        except Exception as exc:  # noqa: BLE001 - photos still matter more
+            print(f"    ! could not upload {Path(extra).name}: {exc}")
 
     if photo_paths:
         photos_id = client.ensure_folder("Photos", folder_id)

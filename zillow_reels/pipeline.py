@@ -45,6 +45,11 @@ class RunOptions:
     parent_folder_id: str = ""
     console_auth: bool = False
     skip_video: bool = False
+    # Both set by `sold` only. A sold run produces no video, so the facts have
+    # to be archived some other way, and its folders want to be tellable from
+    # for-sale ones at a glance in Drive. `reel` leaves both alone.
+    write_details: bool = False
+    folder_prefix: str = ""
     headless: bool = True
     verbose: bool = True
     # Field-level overrides applied on top of whatever was scraped or loaded —
@@ -57,6 +62,7 @@ class RunResult:
     listing: Listing
     video_path: Path | None = None
     photo_paths: list[Path] = field(default_factory=list)
+    details_path: Path | None = None
     drive: dict = field(default_factory=dict)
     template_path: Path | None = None
     status: str = "ok"          # ok | needs_input | error
@@ -194,17 +200,28 @@ def run_one(options: RunOptions, cfg: Config) -> RunResult:
         log(f"  Building video -> {video_path}")
         result.video_path = build_video(listing, in_video, video_path, cfg, verbose=options.verbose)
 
+    # --- details record ----------------------------------------------------
+    if options.write_details:
+        details_path = workdir / f"{listing.slug}-details.txt"
+        details_path.write_text(manual_mod.details_text(listing), encoding="utf-8")
+        result.details_path = details_path
+        log(f"  Wrote the details record -> {details_path}")
+
     # --- drive ------------------------------------------------------------
     if options.upload:
         from .drive import DriveError, upload_listing  # imported late: optional dep
 
-        log(f"  Uploading to Google Drive folder '{listing.folder_name}'")
+        folder_name = listing.folder_name
+        if options.folder_prefix:
+            folder_name = f"{options.folder_prefix} - {folder_name}"
+        log(f"  Uploading to Google Drive folder '{folder_name}'")
         try:
             result.drive = upload_listing(
-                listing.folder_name,
+                folder_name,
                 result.video_path,
                 result.photo_paths,
                 cfg,
+                extra_files=[result.details_path] if result.details_path else None,
                 client_secrets=options.client_secrets or None,
                 parent_folder_id=options.parent_folder_id or None,
                 console=options.console_auth,

@@ -17,7 +17,8 @@ from PIL import Image
 
 from zillow_reels.cards import render_units_cards
 from zillow_reels.config import Config
-from zillow_reels.manual import load_manual, write_template
+from zillow_reels.manual import details_text, load_manual, write_template
+from zillow_reels.pipeline import RunOptions, RunResult
 from zillow_reels.models import Listing, Photo, Unit
 from zillow_reels.scrape import looks_blocked, parse_html
 
@@ -526,6 +527,71 @@ class TestListing(unittest.TestCase):
         listing = Listing.from_dict({"address": "1/2 Slash: Rd, Bend, OR 97701"})
         self.assertNotIn("/", listing.folder_name)
         self.assertNotIn(":", listing.folder_name)
+
+
+class TestSoldArchive(unittest.TestCase):
+    """The `sold` run archives facts and files them apart from live listings.
+
+    Both behaviours are opt-in, because `reel` must keep producing exactly the
+    folders it always has — a prefix leaking into it would strand every
+    for-sale listing under a new name in Drive.
+    """
+
+    SOLD = {
+        "address": "1439 Zerega Avenue, Bronx, NY 10462",
+        "price": 1060000, "beds": 11, "baths": 3, "sqft": 2260,
+        "status": "RECENTLY_SOLD", "year_built": 1901,
+        "agent_name": "Emran H. Bhuiyan", "brokerage": "Emran Estates Realty",
+        "sold_date": "8/6/2026", "buyer_agent": "Imam Hasan",
+        "buyer_brokerage": "Exit Realty DKC",
+        "url": "https://www.zillow.com/homedetails/x_zpid/",
+    }
+
+    def test_details_text_records_the_closing_facts(self):
+        text = details_text(Listing.from_dict(self.SOLD))
+        for expected in ("1439 Zerega Avenue", "$1,060,000", "8/6/2026",
+                         "Imam Hasan", "Exit Realty DKC", "Emran H. Bhuiyan"):
+            self.assertIn(expected, text)
+        self.assertIn("Source: https://www.zillow.com/homedetails/x_zpid/", text)
+        # The address heads the record; repeating it as a row is noise.
+        self.assertEqual(text.count("1439 Zerega Avenue"), 1)
+
+    def test_details_text_omits_blanks_rather_than_asserting_them(self):
+        text = details_text(Listing.from_dict({"address": "9 Pine St, Bend, OR 97701"}))
+        self.assertNotIn("(missing)", text)
+        self.assertNotIn("Sold date", text)      # not a sold listing
+        self.assertNotIn("Buyer's agent", text)
+
+    def test_sold_command_opts_into_both(self):
+        """Capture what `sold` hands the pipeline, without running a scrape."""
+        import zillow_reels.cli as cli
+
+        captured = {}
+
+        def fake_run_one(options, cfg):
+            captured["options"] = options
+            return RunResult(listing=Listing.from_dict(self.SOLD), status="error")
+
+        args = cli.build_parser().parse_args(["sold", "https://example.com/x_zpid/"])
+        import contextlib
+        import io
+
+        original = cli.run_one
+        cli.run_one = fake_run_one
+        try:
+            with contextlib.redirect_stdout(io.StringIO()):
+                args.func(args)
+        finally:
+            cli.run_one = original
+
+        options = captured["options"]
+        self.assertTrue(options.write_details)
+        self.assertEqual(options.folder_prefix, "Sold")
+        self.assertTrue(options.skip_video)
+
+    def test_reel_leaves_both_off(self):
+        self.assertFalse(RunOptions().write_details)
+        self.assertEqual(RunOptions().folder_prefix, "")
 
 
 class TestManualFallback(unittest.TestCase):
