@@ -52,7 +52,8 @@ DATE_PATTERN = (
 # listing. It is fetched separately from the page, and on a sold listing it is
 # the only place the sale date exists. Listings without one simply time out,
 # so this is also a floor on how much slower every sold fetch becomes.
-PRICE_HISTORY_TIMEOUT = 8000  # ms
+PRICE_HISTORY_TIMEOUT = 6000  # ms per attempt
+PRICE_HISTORY_ATTEMPTS = 3
 
 # Scroll passes, each about one viewport. A listing page runs to tens of
 # thousands of pixels; the loop exits early the moment the page stops
@@ -301,6 +302,107 @@ def _await_human(page, status: int, timeout: int) -> tuple[str, int]:
     return page.content(), status
 
 
+def _scroll_to_end(page) -> None:
+    """Walk to the bottom of whatever actually scrolls.
+
+    The desktop listing layout puts the page inside a scrolling
+    `div.layout-container-desktop` rather than letting the window scroll:
+    `document.body.scrollHeight` equals the viewport, `window.scrollY` is
+    pinned at 0, and `window.scrollBy` is a no-op. A window-only loop reads
+    that motionless scrollY as "already at the bottom" and gives up on the
+    first pass, so every section below the fold — price history among them —
+    is never approached and never renders.
+
+    So find the real scroller first: the window if it moves, else the tallest
+    overflowing element. Height is re-read every pass because these pages grow
+    as they load (one ran 6,080 -> 9,126px mid-scroll), and a bottom computed
+    once is the wrong bottom.
+    """
+    try:
+        for _ in range(SCROLL_PASSES):
+            at_bottom = page.evaluate(
+                """() => {
+                    const doc = document.scrollingElement || document.documentElement;
+                    let el = doc;
+                    if (doc.scrollHeight <= doc.clientHeight + 4) {
+                        let best = null;
+                        for (const e of document.querySelectorAll('div,main,section')) {
+                            const s = getComputedStyle(e);
+                            if (s.overflowY !== 'auto' && s.overflowY !== 'scroll') continue;
+                            if (e.scrollHeight <= e.clientHeight + 200) continue;
+                            if (!best || e.scrollHeight > best.scrollHeight) best = e;
+                        }
+                        if (best) el = best;
+                    }
+                    const before = el.scrollTop;
+                    el.scrollTop = before + el.clientHeight * 0.9;
+                    return el.scrollTop === before;
+                }"""
+            )
+            page.wait_for_timeout(random.randint(160, 320))
+            if at_bottom:
+                break
+    except Exception:  # noqa: BLE001 - scrolling is best-effort
+        pass
+
+
+def _await_price_history(page) -> bool:
+    """Wait for the price-history rows, nudging the section into view.
+
+    Zillow fetches this table separately once its heading is approached, so
+    two things go wrong independently: the section is never looked at, or it
+    is looked at and the request has not landed. Scrolling to the bottom
+    handles the first; this handles the second.
+
+    The first wait is unconditional — the rows are what matter, and keying
+    off the heading would skip the wait entirely on any page that renders
+    them together. Retries are spent only when a heading *is* present, so a
+    listing with no price history costs one timeout rather than three.
+    """
+    try:
+        if page.query_selector("tr[label]"):
+            return True
+        for attempt in range(PRICE_HISTORY_ATTEMPTS):
+            try:
+                page.wait_for_selector("tr[label]", timeout=PRICE_HISTORY_TIMEOUT)
+                return True
+            except Exception:  # noqa: BLE001 - not there yet, maybe not ever
+                pass
+            heading = page.query_selector(
+                "xpath=//*[self::h2 or self::h3][contains(translate(text(),"
+                "'PRICEHISTORY','pricehistory'),'price history')]"
+            )
+            if heading is None or attempt == PRICE_HISTORY_ATTEMPTS - 1:
+                return False
+            # Rock the viewport: a section already in view fires no fresh
+            # intersection, so leaving and returning re-triggers the load.
+            try:
+                # Back off using the real scroller, not the window — on the
+                # desktop layout `window.scrollBy` moves nothing at all.
+                page.evaluate(
+                    """() => {
+                        const doc = document.scrollingElement || document.documentElement;
+                        let el = doc;
+                        if (doc.scrollHeight <= doc.clientHeight + 4) {
+                            for (const e of document.querySelectorAll('div,main,section')) {
+                                const s = getComputedStyle(e);
+                                if (s.overflowY !== 'auto' && s.overflowY !== 'scroll') continue;
+                                if (e.scrollHeight <= e.clientHeight + 200) continue;
+                                if (el === doc || e.scrollHeight > el.scrollHeight) el = e;
+                            }
+                        }
+                        el.scrollTop -= 1200;
+                    }"""
+                )
+                page.wait_for_timeout(300)
+                heading.scroll_into_view_if_needed(timeout=3000)
+            except Exception:  # noqa: BLE001
+                pass
+    except Exception:  # noqa: BLE001 - never let this sink a fetch
+        pass
+    return False
+
+
 def fetch_browser(
     url: str,
     timeout: int = 45,
@@ -391,34 +493,14 @@ def fetch_browser(
             # fixed length — price history sits below the Zestimate chart, the
             # comps carousel and the whole facts list, and was still
             # unrendered when the HTML was read.
-            try:
-                # Enough passes to reach the end of a listing page, which runs
-                # to tens of thousands of pixels once the comps, the charts and
-                # the facts list have all expanded. Twelve got roughly two
-                # thirds of the way down and stopped short of price history.
-                for _ in range(SCROLL_PASSES):
-                    at_bottom = page.evaluate(
-                        "() => {"
-                        " const before = window.scrollY;"
-                        " window.scrollBy(0, window.innerHeight * 0.9);"
-                        " return window.scrollY === before;"
-                        "}"
-                    )
-                    page.wait_for_timeout(random.randint(160, 320))
-                    if at_bottom:
-                        break
-            except Exception:  # noqa: BLE001 - scrolling is best-effort
-                pass
+            _scroll_to_end(page)
 
             # Price history is fetched separately once its section is
             # approached, so reaching the bottom is not enough — the request
             # has to come back too. A sold page carries `canShowPriceHistory`
             # in its payload but none of the rows, and the sale date lives
             # nowhere else, so it is worth waiting for explicitly.
-            try:
-                page.wait_for_selector("tr[label]", timeout=PRICE_HISTORY_TIMEOUT)
-            except Exception:  # noqa: BLE001 - most listings have no such table
-                pass
+            _await_price_history(page)
 
             page.wait_for_timeout(random.randint(800, 1500))
             html = page.content()
