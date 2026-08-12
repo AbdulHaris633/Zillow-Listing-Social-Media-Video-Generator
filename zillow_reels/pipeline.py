@@ -174,6 +174,17 @@ def run_one(options: RunOptions, cfg: Config) -> RunResult:
     workdir = Path(options.workdir).expanduser() / listing.slug
     workdir.mkdir(parents=True, exist_ok=True)
 
+    # --- details record ----------------------------------------------------
+    # Written before the photos, not after: on a sold run the facts are the
+    # deliverable, and a listing whose photo fails to download is exactly the
+    # case where having them written down matters most. Writing it later meant
+    # a photo error returned early and took the record with it.
+    if options.write_details:
+        details_path = workdir / f"{listing.slug}-details.txt"
+        details_path.write_text(manual_mod.details_text(listing), encoding="utf-8")
+        result.details_path = details_path
+        log(f"  Wrote the details record -> {details_path}")
+
     # --- photos -----------------------------------------------------------
     log(f"  Downloading photos -> {workdir / 'photos'}")
     # The whole gallery is saved and uploaded; the video uses a prefix of it.
@@ -187,8 +198,12 @@ def run_one(options: RunOptions, cfg: Config) -> RunResult:
         result.status = "error"
         result.messages.append("No usable photos — nothing to render.")
         log("  ! No usable photos were downloaded.")
-        return result
-    listing.photos = photos
+        # An archive run still has something worth keeping, so carry on to
+        # file the record. Nothing below needs photos: the video is already
+        # skipped, and the upload simply has none to send.
+        if not options.write_details:
+            return result
+    listing.photos = photos or listing.photos
     result.photo_paths = [Path(p.path) for p in photos if p.path]
 
     # --- video ------------------------------------------------------------
@@ -199,13 +214,6 @@ def run_one(options: RunOptions, cfg: Config) -> RunResult:
             log(f"  Using the first {len(in_video)} of {len(photos)} photo(s) in the video")
         log(f"  Building video -> {video_path}")
         result.video_path = build_video(listing, in_video, video_path, cfg, verbose=options.verbose)
-
-    # --- details record ----------------------------------------------------
-    if options.write_details:
-        details_path = workdir / f"{listing.slug}-details.txt"
-        details_path.write_text(manual_mod.details_text(listing), encoding="utf-8")
-        result.details_path = details_path
-        log(f"  Wrote the details record -> {details_path}")
 
     # --- drive ------------------------------------------------------------
     if options.upload:

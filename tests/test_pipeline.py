@@ -593,6 +593,39 @@ class TestSoldArchive(unittest.TestCase):
         self.assertFalse(RunOptions().write_details)
         self.assertEqual(RunOptions().folder_prefix, "")
 
+    def test_details_survive_a_photo_failure(self):
+        """The record is the deliverable, so a dead photo must not take it.
+
+        This is the case that lost the file in the field: one photo scraped,
+        zero downloaded, and the run returned before ever writing the facts.
+        """
+        import contextlib
+        import io
+
+        import zillow_reels.pipeline as pipeline_mod
+
+        listing = Listing.from_dict(self.SOLD)
+        listing.photos = [Photo(url="https://example.invalid/nope.jpg")]
+
+        with tempfile.TemporaryDirectory() as tmp:
+            options = RunOptions(
+                write_details=True, folder_prefix="Sold", skip_video=True,
+                upload=False, workdir=Path(tmp), required=("address",),
+                verbose=False,
+            )
+            original = pipeline_mod.acquire
+            pipeline_mod.acquire = lambda o, c: (listing, [], False)
+            try:
+                with contextlib.redirect_stdout(io.StringIO()):
+                    result = pipeline_mod.run_one(options, Config())
+            finally:
+                pipeline_mod.acquire = original
+
+            self.assertEqual(result.status, "error")     # still reported honestly
+            self.assertIsNotNone(result.details_path)
+            self.assertTrue(Path(result.details_path).exists())
+            self.assertIn("8/6/2026", Path(result.details_path).read_text())
+
 
 class TestManualFallback(unittest.TestCase):
     def test_prefilled_template_round_trip(self):

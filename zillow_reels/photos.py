@@ -54,21 +54,28 @@ def _download(photo: Photo, dest: Path, index: int, timeout: int) -> Path | None
     return target
 
 
-def _validate(path: Path) -> tuple[bool, str, int]:
-    """Return (keep, content_hash, width). Rejects tiny or unreadable images."""
+def _validate(path: Path) -> tuple[bool, str, int, str]:
+    """Return (keep, content_hash, width, reason).
+
+    `reason` explains a rejection. It exists because a photo that downloads
+    fine and is then dropped here used to vanish without a word, leaving
+    "kept 0 photo(s)" as the only clue that anything had happened at all.
+    """
     try:
         with Image.open(path) as img:
             img.verify()
         with Image.open(path) as img:
             width, height = img.size
             if width < MIN_WIDTH or height < MIN_HEIGHT:
-                return False, "", width
+                return False, "", width, (
+                    f"too small ({width}x{height}, need {MIN_WIDTH}x{MIN_HEIGHT})"
+                )
             # Hash a downscaled copy so re-encodes of the same photo collide.
             thumb = img.convert("RGB").resize((32, 32))
             digest = hashlib.sha1(thumb.tobytes()).hexdigest()
-        return True, digest, width
-    except (UnidentifiedImageError, OSError, ValueError):
-        return False, "", 0
+        return True, digest, width, ""
+    except (UnidentifiedImageError, OSError, ValueError) as exc:
+        return False, "", 0, f"unreadable image ({type(exc).__name__})"
 
 
 def build_contact_sheet(
@@ -203,8 +210,10 @@ def download_photos(
             if verbose and error:
                 print(f"    ! skipped a photo: {error[:90]}")
             continue
-        keep, digest, width = _validate(path)
+        keep, digest, width, reason = _validate(path)
         if not keep:
+            if verbose:
+                print(f"    ! rejected {photo.url[-48:]}: {reason}")
             path.unlink(missing_ok=True)
             continue
         if digest in seen:

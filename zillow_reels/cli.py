@@ -112,6 +112,12 @@ def _report(result: RunResult) -> None:
         print(f"  FAILED  {listing.address or listing.url}")
         for message in result.messages[-3:]:
             print(f"    {message}")
+        # A failed run can still have salvaged something. Say where it is
+        # rather than leaving the impression that nothing was written.
+        if result.details_path:
+            print(f"    {'details:':<9}{result.details_path}")
+        if result.drive.get("folder_url"):
+            print(f"    {'drive:':<9}{result.drive['folder_url']}")
         return
 
     print(f"  DONE  {listing.address}")
