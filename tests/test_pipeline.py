@@ -9,6 +9,7 @@ __NEXT_DATA__), which is the part most likely to break on a redesign.
 from __future__ import annotations
 
 import json
+import sys
 import tempfile
 import unittest
 from pathlib import Path
@@ -21,7 +22,7 @@ from zillow_reels.manual import details_text, load_manual, write_template
 from zillow_reels.pipeline import RunOptions, RunResult
 from zillow_reels.models import Listing, Photo, Unit
 from zillow_reels.photos import _validate
-from zillow_reels.scrape import looks_blocked, parse_html
+from zillow_reels.scrape import looks_blocked, parse_html, stable_identity
 
 PROPERTY = {
     "zpid": 10000001,
@@ -777,6 +778,43 @@ class TestManualFallback(unittest.TestCase):
             }))
             listing = load_manual(template)
             self.assertEqual([p.path.name for p in listing.photos], ["01.jpg", "02.jpg"])
+
+
+class TestStableIdentity(unittest.TestCase):
+    """One browser identity per profile, or the challenge never stops.
+
+    A persistent profile sends the same cookies every run. Rolling a fresh
+    user-agent each time presents that one visitor as macOS Chrome one minute
+    and Windows Chrome the next, which invalidates the clearance token as
+    fast as it is granted.
+    """
+
+    def test_identity_is_stable_within_a_profile(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            first = stable_identity(tmp)
+            for _ in range(5):
+                self.assertEqual(stable_identity(tmp), first)
+
+    def test_identity_still_varies_between_profiles(self):
+        seen = set()
+        with tempfile.TemporaryDirectory() as tmp:
+            for index in range(24):
+                profile = Path(tmp) / f"p{index}"
+                profile.mkdir()
+                build, viewport = stable_identity(profile)
+                seen.add((build[0], viewport["width"], viewport["height"]))
+        self.assertGreater(len(seen), 1, "every profile drew the same identity")
+
+    def test_identity_matches_the_host_platform(self):
+        expected = {"darwin": "macOS", "win32": "Windows"}.get(sys.platform, "Linux")
+        with tempfile.TemporaryDirectory() as tmp:
+            build, _viewport = stable_identity(tmp)
+        self.assertEqual(build[2], expected)
+
+    def test_unwritable_profile_still_yields_an_identity(self):
+        build, viewport = stable_identity("/proc/nonexistent-and-unwritable")
+        self.assertTrue(build[0])
+        self.assertIn("width", viewport)
 
 
 class TestPhotoValidation(unittest.TestCase):

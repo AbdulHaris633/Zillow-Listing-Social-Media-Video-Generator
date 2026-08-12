@@ -30,6 +30,7 @@ from __future__ import annotations
 import json
 import random
 import re
+import sys
 import time
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -87,6 +88,52 @@ CHROME_BUILDS = [
     ("128", "Macintosh; Intel Mac OS X 10_15_7", "macOS", "chrome124"),
     ("125", "X11; Linux x86_64", "Linux", "chrome124"),
 ]
+
+
+def _host_builds() -> list[tuple]:
+    """Builds whose platform matches this machine.
+
+    Claiming Windows from a Mac contradicts everything a page can measure for
+    itself — platform APIs, fonts, the shape of the scrollbars — so the UA is
+    the one part of the story that should not be invented.
+    """
+    label = {"darwin": "macOS", "win32": "Windows"}.get(sys.platform, "Linux")
+    return [b for b in CHROME_BUILDS if b[2] == label] or CHROME_BUILDS
+
+
+def stable_identity(profile_dir: str | Path) -> tuple[tuple, dict]:
+    """One browser identity per profile, remembered across runs.
+
+    A persistent profile carries the same cookies every run, so rolling a
+    fresh user-agent and viewport each time presents the *same* visitor as
+    macOS Chrome 126, then Windows Chrome 127, minutes apart. Bot detection
+    binds its clearance token to the fingerprint, so that inconsistency
+    invalidates the token as fast as it is granted — the challenge is solved
+    and then reappears on the next run, forever.
+
+    Randomising across *profiles* is still useful; randomising within one is
+    self-defeating.
+    """
+    path = Path(profile_dir).expanduser() / "zillow-reels-identity.json"
+    try:
+        saved = json.loads(path.read_text(encoding="utf-8"))
+        return tuple(saved["build"]), saved["viewport"]
+    except Exception:  # noqa: BLE001 - absent or unreadable: mint a new one
+        pass
+
+    identity = {
+        "build": list(random.choice(_host_builds())),
+        "viewport": {
+            "width": random.choice([1440, 1512, 1680]),
+            "height": random.choice([816, 900, 945]),
+        },
+    }
+    try:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(json.dumps(identity, indent=2), encoding="utf-8")
+    except OSError:
+        pass  # unwritable profile: a fresh identity each run is still workable
+    return tuple(identity["build"]), identity["viewport"]
 
 
 def build_headers(referer: str = "https://www.google.com/", build: tuple | None = None) -> dict:
@@ -461,7 +508,15 @@ def fetch_browser(
             "    pip install playwright && playwright install chromium"
         ) from exc
 
-    build = random.choice(CHROME_BUILDS)
+    # A saved profile keeps one identity; a throwaway context may vary freely.
+    if profile_dir:
+        build, viewport = stable_identity(profile_dir)
+    else:
+        build = random.choice(CHROME_BUILDS)
+        viewport = {
+            "width": random.choice([1440, 1512, 1680]),
+            "height": random.choice([816, 900, 945]),
+        }
     headers = build_headers(build=build)
     launch_args = [
         "--disable-blink-features=AutomationControlled",  # drops the automation flag
@@ -471,7 +526,7 @@ def fetch_browser(
     ]
     context_args = dict(
         user_agent=headers["User-Agent"],
-        viewport={"width": random.choice([1440, 1512, 1680]), "height": random.choice([816, 900, 945])},
+        viewport=viewport,
         locale="en-US",
         timezone_id="America/Chicago",
         extra_http_headers={"Accept-Language": headers["Accept-Language"]},
