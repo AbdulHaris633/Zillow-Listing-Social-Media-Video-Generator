@@ -3,6 +3,7 @@
 #
 #   ./reel                          asks for the link
 #   ./reel <zillow-url>             scrape -> review -> photos -> video -> Drive
+#   ./reel <saved-page.html>        read a page you saved yourself, no request
 #
 # After scraping it prints what it found and waits: press Enter to accept and
 # build, or type a field number to correct something first.
@@ -63,6 +64,16 @@ if [ $# -eq 0 ]; then
     read -r URL
     [ -z "$URL" ] && { echo "No link given."; exit 1; }
     set -- "$URL"
+fi
+
+# A saved page instead of a link. When Zillow's human check refuses to pass
+# even for a real person — it can reject the gesture purely because the
+# browser was started by automation — open the listing in your own browser,
+# scroll to the bottom so everything loads, File > Save Page As, and hand the
+# .html here. No request is made to Zillow at all.
+if [ -f "$1" ]; then
+    echo "  Reading the saved page (no request to Zillow)."
+    exec "$PY" -m zillow_reels make --from-html "$1" "${@:2}" --review ${DRIVE[@]+"${DRIVE[@]}"}
 fi
 
 BROWSER=(--fetch browser --browser-channel chrome --browser-profile "$PROFILE" --review)

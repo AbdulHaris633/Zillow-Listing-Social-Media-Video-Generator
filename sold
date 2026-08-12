@@ -3,6 +3,7 @@
 #
 #   ./sold                          asks for the link
 #   ./sold <zillow-url>             scrape -> review -> photos -> Drive
+#   ./sold <saved-page.html>        read a page you saved yourself, no request
 #
 # No video is rendered. A sold listing is a record, not an advertisement —
 # what matters is the address, what it went for, when, and who closed it.
@@ -52,6 +53,16 @@ if [ $# -eq 0 ]; then
     read -r URL
     [ -z "$URL" ] && { echo "No link given."; exit 1; }
     set -- "$URL"
+fi
+
+# A saved page instead of a link. When Zillow's human check refuses to pass
+# even for a real person — it can reject the gesture purely because the
+# browser was started by automation — open the listing in your own browser,
+# scroll to the bottom so the price history loads, File > Save Page As, and
+# hand the .html here. No request is made to Zillow at all.
+if [ -f "$1" ]; then
+    echo "  Reading the saved page (no request to Zillow)."
+    exec "$PY" -m zillow_reels sold --from-html "$1" "${@:2}" --review ${DRIVE[@]+"${DRIVE[@]}"}
 fi
 
 BROWSER=(--fetch browser --browser-channel chrome --browser-profile "$PROFILE" --review)
