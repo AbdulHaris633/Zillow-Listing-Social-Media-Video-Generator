@@ -594,6 +594,45 @@ class TestSoldArchive(unittest.TestCase):
         self.assertFalse(RunOptions().write_details)
         self.assertEqual(RunOptions().folder_prefix, "")
 
+    def _run(self, **overrides):
+        """Run the pipeline on a fixed listing with acquisition stubbed out."""
+        import contextlib
+        import io
+
+        import zillow_reels.pipeline as pipeline_mod
+
+        listing = Listing.from_dict(self.SOLD)
+        listing.photos = [Photo(url="https://example.invalid/nope.jpg")]
+        options = RunOptions(
+            skip_video=True, upload=False, required=("address",), verbose=False,
+            **overrides,
+        )
+        original = pipeline_mod.acquire
+        pipeline_mod.acquire = lambda o, c: (listing, [], False)
+        try:
+            with contextlib.redirect_stdout(io.StringIO()):
+                return pipeline_mod.run_one(options, Config())
+        finally:
+            pipeline_mod.acquire = original
+
+    def test_sold_run_is_identifiable_on_disk(self):
+        """The prefix reaches local paths, not just Drive.
+
+        Without it a closed deal sits among the for-sale folders under a bare
+        address, indistinguishable from a `reel` run.
+        """
+        with tempfile.TemporaryDirectory() as tmp:
+            result = self._run(write_details=True, folder_prefix="Sold", workdir=Path(tmp))
+            details = Path(result.details_path)
+            self.assertTrue(details.name.startswith("sold-"), details.name)
+            self.assertTrue(details.parent.name.startswith("sold-"), details.parent.name)
+
+    def test_reel_paths_are_untouched(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            self._run(write_details=False, folder_prefix="", workdir=Path(tmp))
+            folders = [p.name for p in Path(tmp).iterdir()]
+            self.assertEqual(folders, ["1439-zerega-avenue-bronx-ny-10462"])
+
     def test_details_survive_a_photo_failure(self):
         """The record is the deliverable, so a dead photo must not take it.
 

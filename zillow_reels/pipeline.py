@@ -149,13 +149,19 @@ def run_one(options: RunOptions, cfg: Config) -> RunResult:
         listing = manual_mod.review_listing(listing, cfg, options.required)
         result.listing = listing
 
+    # The same prefix Drive gets, so a closed deal is identifiable on disk too
+    # rather than sitting among the for-sale folders under a bare address.
+    # Lowercased and hyphenated to match the slug it joins; empty for `reel`,
+    # which keeps the exact paths it has always written.
+    stem = f"{options.folder_prefix.lower()}-{listing.slug}" if options.folder_prefix else listing.slug
+
     # --- gate on required fields -----------------------------------------
     missing = listing.missing_required(options.required)
     if missing:
         result.status = "needs_input"
         result.messages.append(f"Missing required field(s): {', '.join(missing)}")
         if options.write_fallback_template:
-            workdir = Path(options.workdir).expanduser() / (listing.slug or "unknown-listing")
+            workdir = Path(options.workdir).expanduser() / (stem or "unknown-listing")
             template = manual_mod.write_template(workdir / "listing.json", listing)
             result.template_path = template
             log(f"\n  Could not get everything automatically. Missing: {', '.join(missing)}")
@@ -171,7 +177,7 @@ def run_one(options: RunOptions, cfg: Config) -> RunResult:
         result.messages.append(note)
         log(f"  - {note}")
 
-    workdir = Path(options.workdir).expanduser() / listing.slug
+    workdir = Path(options.workdir).expanduser() / stem
     workdir.mkdir(parents=True, exist_ok=True)
 
     # --- details record ----------------------------------------------------
@@ -180,7 +186,7 @@ def run_one(options: RunOptions, cfg: Config) -> RunResult:
     # case where having them written down matters most. Writing it later meant
     # a photo error returned early and took the record with it.
     if options.write_details:
-        details_path = workdir / f"{listing.slug}-details.txt"
+        details_path = workdir / f"{stem}-details.txt"
         details_path.write_text(manual_mod.details_text(listing), encoding="utf-8")
         result.details_path = details_path
         log(f"  Wrote the details record -> {details_path}")
@@ -208,7 +214,7 @@ def run_one(options: RunOptions, cfg: Config) -> RunResult:
 
     # --- video ------------------------------------------------------------
     if not options.skip_video:
-        video_path = workdir / f"{listing.slug}.mp4"
+        video_path = workdir / f"{stem}.mp4"
         in_video = photos[: cfg.max_photos] if cfg.max_photos else photos
         if len(in_video) < len(photos):
             log(f"  Using the first {len(in_video)} of {len(photos)} photo(s) in the video")
