@@ -1,0 +1,61 @@
+#!/bin/bash
+# Start Chrome so ./reel and ./sold can attach to it.
+#
+#   ./chrome-attach          start it, then leave this window alone
+#
+# Why this exists: Zillow's press-and-hold check can refuse a real person's
+# gesture purely because the browser was started by automation — it just keeps
+# saying "try again". A browser you started yourself is not automated, so the
+# check behaves normally, and once you are browsing Zillow in it the tool can
+# read pages through that same session:
+#
+#   ./sold  <url> --connect http://localhost:9222
+#   ./reel  <url> --connect http://localhost:9222
+#
+# Chrome refuses remote debugging on your everyday profile (a deliberate
+# security rule, since anything on your machine could then drive your logged-in
+# browser). So this uses a separate profile directory. The first time, sign in
+# to nothing and simply browse Zillow once — that is enough for the check.
+
+set -uo pipefail
+
+PORT="${PORT:-9222}"
+PROFILE="${CHROME_ATTACH_PROFILE:-$HOME/.zillow-chrome}"
+CHROME="/Applications/Google Chrome.app/Contents/MacOS/Google Chrome"
+
+if [ ! -x "$CHROME" ]; then
+    echo "Google Chrome not found at:"
+    echo "    $CHROME"
+    echo "Install Chrome, or edit CHROME at the top of this script."
+    exit 1
+fi
+
+if curl -s --max-time 2 "http://localhost:$PORT/json/version" >/dev/null 2>&1; then
+    echo "Chrome is already listening on port $PORT — nothing to do."
+    echo "Use:  ./sold <url> --connect http://localhost:$PORT"
+    exit 0
+fi
+
+mkdir -p "$PROFILE"
+
+echo "──────────────────────────────────────────────────────────────"
+echo " Starting Chrome with remote debugging on port $PORT"
+echo " Profile: $PROFILE"
+echo
+echo " 1. Browse to zillow.com in the window that opens."
+echo " 2. If it asks you to press & hold, do it there — it will pass,"
+echo "    because this browser was started by you, not by automation."
+echo " 3. Leave the window open, then in another terminal run:"
+echo
+echo "      ./sold <zillow-url> --connect http://localhost:$PORT"
+echo
+echo " Close the window when you are done."
+echo "──────────────────────────────────────────────────────────────"
+echo
+
+exec "$CHROME" \
+    --remote-debugging-port="$PORT" \
+    --user-data-dir="$PROFILE" \
+    --no-first-run \
+    --no-default-browser-check \
+    "https://www.zillow.com/"

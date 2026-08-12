@@ -481,8 +481,15 @@ def fetch_browser(
     channel: str | None = None,
     solve_challenge: bool = False,
     challenge_timeout: int = 180,
+    connect_url: str | None = None,
 ) -> tuple[str, int]:
     """Playwright Chromium, hardened. Optional dependency.
+
+    `connect_url` attaches to a Chrome already running with remote debugging
+    open, rather than starting one. That is the answer when the human check
+    refuses a real person's press-and-hold: it can reject the gesture purely
+    because the browser was launched by automation, and a browser the
+    operator started themselves carries their own trusted session instead.
 
     `solve_challenge` opens the window and waits for *you* to clear Zillow's
     press-and-hold check by hand, then carries on. Paired with `profile_dir`
@@ -535,11 +542,22 @@ def fetch_browser(
         context_args["proxy"] = {"server": proxy}
 
     throttle()
+    attached = False
     with sync_playwright() as pw:
         launch_kwargs = {"headless": headless, "args": launch_args}
         if channel:
             launch_kwargs["channel"] = channel
-        if profile_dir:
+        if connect_url:
+            # Attach to a Chrome the operator started themselves. Nothing here
+            # launches or configures it, so it carries their real session and
+            # none of the automation switches a launched browser is given —
+            # which is the whole point: the press-and-hold check can refuse a
+            # genuine human gesture purely because Playwright started the
+            # browser, and this is the honest way around that.
+            browser = pw.chromium.connect_over_cdp(connect_url)
+            context = browser.contexts[0] if browser.contexts else browser.new_context()
+            attached = True
+        elif profile_dir:
             context = pw.chromium.launch_persistent_context(
                 str(Path(profile_dir).expanduser()), **launch_kwargs, **context_args
             )
@@ -548,7 +566,11 @@ def fetch_browser(
             browser = pw.chromium.launch(**launch_kwargs)
             context = browser.new_context(**context_args)
 
-        context.add_init_script(STEALTH_INIT)
+        # An attached browser is left exactly as found: no user-agent
+        # override, no injected script. Its fingerprint is already real, and
+        # every "correction" would only make it inconsistent.
+        if not attached:
+            context.add_init_script(STEALTH_INIT)
         page = context.new_page()
         try:
             response = page.goto(url, timeout=timeout * 1000, wait_until="domcontentloaded")
@@ -584,9 +606,16 @@ def fetch_browser(
             if solve_challenge and looks_blocked(html, status):
                 html, status = _await_human(page, status, challenge_timeout)
         finally:
-            context.close()
-            if browser:
-                browser.close()
+            if attached:
+                # Their browser, their tabs: close only what we opened.
+                try:
+                    page.close()
+                except Exception:  # noqa: BLE001
+                    pass
+            else:
+                context.close()
+                if browser:
+                    browser.close()
     return html, status
 
 
@@ -600,6 +629,7 @@ def fetch(
     profile_dir: str | Path | None = None,
     channel: str | None = None,
     solve_challenge: bool = False,
+    connect_url: str | None = None,
 ) -> tuple[str, int]:
     """Fetch a page, escalating through backends when `backend` is "auto".
 
@@ -614,7 +644,7 @@ def fetch(
     if backend == "browser":
         return fetch_browser(url, timeout=timeout, headless=headless, proxy=proxy,
                              profile_dir=profile_dir, channel=channel,
-                             solve_challenge=solve_challenge)
+                             solve_challenge=solve_challenge, connect_url=connect_url)
 
     html, status = "", 0
     for step in ("curl", "requests", "browser"):
@@ -622,7 +652,7 @@ def fetch(
             html, status = fetch(
                 url, backend=step, timeout=timeout, headless=headless,
                 proxy=proxy, profile_dir=profile_dir, channel=channel,
-                solve_challenge=solve_challenge,
+                solve_challenge=solve_challenge, connect_url=connect_url,
             )
         except RuntimeError:
             continue  # backend not installed — try the next rung
@@ -1382,6 +1412,7 @@ def scrape(
     channel: str | None = None,
     solve_challenge: bool = False,
     save_html: str | Path | None = None,
+    connect_url: str | None = None,
 ) -> ScrapeResult:
     """Fetch and parse a listing. Never raises on a block — reports it.
 
@@ -1399,7 +1430,7 @@ def scrape(
         html, status = fetch(
             url, backend=backend, timeout=timeout, headless=headless,
             proxy=proxy, profile_dir=profile_dir, channel=channel,
-            solve_challenge=solve_challenge,
+            solve_challenge=solve_challenge, connect_url=connect_url,
         )
         source_note = f"{backend} HTTP {status}"
 

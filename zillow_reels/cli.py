@@ -39,6 +39,10 @@ def _common_args(parser: argparse.ArgumentParser) -> None:
                         help="persistent Chromium profile dir; reuses cookies between runs")
     parser.add_argument("--browser-channel", default="",
                         help="drive real installed Chrome instead of bundled Chromium, e.g. 'chrome'")
+    parser.add_argument("--connect", default="", metavar="URL",
+                        help="attach to a Chrome you started yourself with "
+                             "--remote-debugging-port (e.g. http://localhost:9222); "
+                             "uses your own session, so the human check is not re-asked")
     parser.add_argument("--solve-challenge", action="store_true",
                         help="open a visible browser and wait for you to clear Zillow's "
                              "human check by hand; pair with --browser-profile to reuse it")
@@ -94,6 +98,7 @@ def _options_from_args(args: argparse.Namespace) -> RunOptions:
         profile_dir=getattr(args, "browser_profile", "") or "",
         channel=getattr(args, "browser_channel", "") or "",
         solve_challenge=getattr(args, "solve_challenge", False),
+        connect_url=getattr(args, "connect", ""),
         review=getattr(args, "review", False),
         write_fallback_template=not getattr(args, "no_fallback_template", False),
         verbose=not args.quiet,
@@ -272,6 +277,7 @@ def cmd_probe(args: argparse.Namespace) -> int:
         profile_dir=args.browser_profile or None,
         channel=args.browser_channel or None,
         solve_challenge=args.solve_challenge,
+        connect_url=getattr(args, "connect", "") or None,
         save_html=getattr(args, "save_html", "") or None,
     )
     listing = result.listing
@@ -378,6 +384,7 @@ def build_parser() -> argparse.ArgumentParser:
     probe.add_argument("--save-html", default="",
                        help="write the fetched HTML here, to see what the page actually served")
     probe.add_argument("--solve-challenge", action="store_true")
+    probe.add_argument("--connect", default="", metavar="URL")
     probe.add_argument("--json", default="", help="write the extracted listing to this file")
     probe.set_defaults(func=cmd_probe)
 

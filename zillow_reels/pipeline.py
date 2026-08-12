@@ -30,6 +30,8 @@ class RunOptions:
     profile_dir: str = ""
     channel: str = ""
     solve_challenge: bool = False
+    # Attach to a Chrome the operator started, instead of launching one.
+    connect_url: str = ""
     review: bool = False
     # A caller that intends to retry (the ./reel wrapper does) suppresses the
     # fallback template, so a stale one isn't left behind by an attempt that
@@ -99,6 +101,7 @@ def acquire(options: RunOptions, cfg: Config) -> tuple[Listing, list[str], bool]
             profile_dir=options.profile_dir or None,
             channel=options.channel or None,
             solve_challenge=options.solve_challenge,
+            connect_url=options.connect_url or None,
         )
         messages.extend(result.notes)
         if result.blocked:
