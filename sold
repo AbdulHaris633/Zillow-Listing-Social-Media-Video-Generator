@@ -1,9 +1,12 @@
 #!/bin/bash
 # Archive a SOLD listing: photos and closing details into Google Drive.
 #
-#   ./sold                          asks for the link
+#   ./sold                          asks for links, one after another
 #   ./sold <zillow-url>             scrape -> review -> photos -> Drive
 #   ./sold <saved-page.html>        read a page you saved yourself, no request
+#
+# Asked with no link it keeps going until you press Enter on an empty prompt,
+# so a session can archive several listings without relaunching.
 #
 # No video is rendered. A sold listing is a record, not an advertisement —
 # what matters is the address, what it went for, when, and who closed it.
@@ -48,40 +51,63 @@ case "${1:-}" in
         ;;
 esac
 
-if [ $# -eq 0 ]; then
-    printf 'Paste the Zillow SOLD listing link: '
-    read -r URL
-    [ -z "$URL" ] && { echo "No link given."; exit 1; }
-    set -- "$URL"
-fi
-
-# A saved page instead of a link. When Zillow's human check refuses to pass
-# even for a real person — it can reject the gesture purely because the
-# browser was started by automation — open the listing in your own browser,
-# scroll to the bottom so the price history loads, File > Save Page As, and
-# hand the .html here. No request is made to Zillow at all.
-if [ -f "$1" ]; then
-    echo "  Reading the saved page (no request to Zillow)."
-    exec "$PY" -m zillow_reels sold --from-html "$1" "${@:2}" --review ${DRIVE[@]+"${DRIVE[@]}"}
-fi
-
 BROWSER=(--fetch browser --browser-channel chrome --browser-profile "$PROFILE" --review)
 
-"$PY" -m zillow_reels sold "$@" ${BROWSER[@]+"${BROWSER[@]}"} ${DRIVE[@]+"${DRIVE[@]}"} --no-fallback-template
-STATUS=$?
+# One listing, start to finish. Factored out so the interactive session below
+# can call it repeatedly without duplicating the retry.
+archive_one() {
+    # A saved page instead of a link. When Zillow's human check refuses to pass
+    # even for a real person — it can reject the gesture purely because the
+    # browser was started by automation — open the listing in your own browser,
+    # scroll to the bottom so the price history loads, File > Save Page As, and
+    # hand the .html here. No request is made to Zillow at all.
+    if [ -f "$1" ]; then
+        echo "  Reading the saved page (no request to Zillow)."
+        "$PY" -m zillow_reels sold --from-html "$1" "${@:2}" --review ${DRIVE[@]+"${DRIVE[@]}"}
+        return $?
+    fi
 
-# Exit 3 means it could not get the data — nearly always the human check.
-if [ $STATUS -eq 3 ]; then
-    echo
-    echo "──────────────────────────────────────────────────────────────"
-    echo " Zillow wants to confirm you're human."
-    echo " A browser window is opening — press & hold the button in it."
-    echo " Everything continues automatically once you do."
-    echo "──────────────────────────────────────────────────────────────"
-    echo
     "$PY" -m zillow_reels sold "$@" ${BROWSER[@]+"${BROWSER[@]}"} ${DRIVE[@]+"${DRIVE[@]}"} \
-        --show-browser --solve-challenge
-    STATUS=$?
+        --no-fallback-template
+    local status=$?
+
+    # Exit 3 means it could not get the data — nearly always the human check.
+    if [ $status -eq 3 ]; then
+        echo
+        echo "──────────────────────────────────────────────────────────────"
+        echo " Zillow wants to confirm you're human."
+        echo " A browser window is opening — press & hold the button in it."
+        echo " Everything continues automatically once you do."
+        echo "──────────────────────────────────────────────────────────────"
+        echo
+        "$PY" -m zillow_reels sold "$@" ${BROWSER[@]+"${BROWSER[@]}"} ${DRIVE[@]+"${DRIVE[@]}"} \
+            --show-browser --solve-challenge
+        status=$?
+    fi
+    return $status
+}
+
+# Given a link on the command line: do that one and stop, so scripts and the
+# batch runner get one listing per invocation as they always have. A leading
+# flag is not a link — `./sold --no-drive` still means "ask me for links".
+if [ $# -gt 0 ] && [ "${1#-}" = "$1" ]; then
+    archive_one "$@"
+    exit $?
 fi
 
+# Asked with no link: keep asking. Archiving is rarely a one-listing job, and
+# quitting after each meant relaunching the whole tool for the next address —
+# worse still when launched from Finder, where the window closes on exit.
+# Any flags given are applied to every listing in the session.
+STATUS=0
+while true; do
+    printf '\nPaste the Zillow SOLD listing link (or press Enter to finish): '
+    read -r URL || break          # Ctrl-D
+    [ -z "$URL" ] && break
+    archive_one "$URL" "$@"
+    STATUS=$?
+done
+
+echo
+echo "Finished."
 exit $STATUS

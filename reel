@@ -1,7 +1,7 @@
 #!/bin/bash
 # One command, whole process: paste a Zillow link, get a video.
 #
-#   ./reel                          asks for the link
+#   ./reel                          asks for links, one after another
 #   ./reel <zillow-url>             scrape -> review -> photos -> video -> Drive
 #   ./reel <saved-page.html>        read a page you saved yourself, no request
 #
@@ -58,44 +58,66 @@ case "${1:-}" in
         ;;
 esac
 
-# No URL given: just ask for one.
-if [ $# -eq 0 ]; then
-    printf 'Paste the Zillow listing link: '
-    read -r URL
-    [ -z "$URL" ] && { echo "No link given."; exit 1; }
-    set -- "$URL"
-fi
-
-# A saved page instead of a link. When Zillow's human check refuses to pass
-# even for a real person — it can reject the gesture purely because the
-# browser was started by automation — open the listing in your own browser,
-# scroll to the bottom so everything loads, File > Save Page As, and hand the
-# .html here. No request is made to Zillow at all.
-if [ -f "$1" ]; then
-    echo "  Reading the saved page (no request to Zillow)."
-    exec "$PY" -m zillow_reels make --from-html "$1" "${@:2}" --review ${DRIVE[@]+"${DRIVE[@]}"}
-fi
-
 BROWSER=(--fetch browser --browser-channel chrome --browser-profile "$PROFILE" --review)
 
-# First attempt stays quiet about the fallback template: if it fails we retry
-# below, and a template written now would just be confusing litter.
-"$PY" -m zillow_reels make "$@" ${BROWSER[@]+"${BROWSER[@]}"} ${DRIVE[@]+"${DRIVE[@]}"} --no-fallback-template
-STATUS=$?
+# One listing, start to finish. Factored out so the interactive session below
+# can call it repeatedly without duplicating the retry.
+make_one() {
+    # A saved page instead of a link. When Zillow's human check refuses to pass
+    # even for a real person — it can reject the gesture purely because the
+    # browser was started by automation — open the listing in your own browser,
+    # scroll to the bottom so everything loads, File > Save Page As, and hand
+    # the .html here. No request is made to Zillow at all.
+    if [ -f "$1" ]; then
+        echo "  Reading the saved page (no request to Zillow)."
+        "$PY" -m zillow_reels make --from-html "$1" "${@:2}" --review ${DRIVE[@]+"${DRIVE[@]}"}
+        return $?
+    fi
 
-# Exit 3 means it could not get the data — nearly always the human check.
-# Reopen with a visible browser and let the operator clear it, then continue.
-if [ $STATUS -eq 3 ]; then
-    echo
-    echo "──────────────────────────────────────────────────────────────"
-    echo " Zillow wants to confirm you're human."
-    echo " A browser window is opening — press & hold the button in it."
-    echo " Everything continues automatically once you do."
-    echo "──────────────────────────────────────────────────────────────"
-    echo
+    # First attempt stays quiet about the fallback template: if it fails we
+    # retry below, and a template written now would just be confusing litter.
     "$PY" -m zillow_reels make "$@" ${BROWSER[@]+"${BROWSER[@]}"} ${DRIVE[@]+"${DRIVE[@]}"} \
-        --show-browser --solve-challenge
-    STATUS=$?
+        --no-fallback-template
+    local status=$?
+
+    # Exit 3 means it could not get the data — nearly always the human check.
+    # Reopen with a visible browser and let the operator clear it, then carry on.
+    if [ $status -eq 3 ]; then
+        echo
+        echo "──────────────────────────────────────────────────────────────"
+        echo " Zillow wants to confirm you're human."
+        echo " A browser window is opening — press & hold the button in it."
+        echo " Everything continues automatically once you do."
+        echo "──────────────────────────────────────────────────────────────"
+        echo
+        "$PY" -m zillow_reels make "$@" ${BROWSER[@]+"${BROWSER[@]}"} ${DRIVE[@]+"${DRIVE[@]}"} \
+            --show-browser --solve-challenge
+        status=$?
+    fi
+    return $status
+}
+
+# Given a link on the command line: do that one and stop, so scripts and the
+# batch runner get one listing per invocation as they always have. A leading
+# flag is not a link — `./reel --no-drive` still means "ask me for links".
+if [ $# -gt 0 ] && [ "${1#-}" = "$1" ]; then
+    make_one "$@"
+    exit $?
 fi
 
+# Asked with no link: keep asking. Making reels is rarely a one-listing job,
+# and quitting after each meant relaunching the whole tool for the next
+# address — worse still from Finder, where the window closes on exit.
+# Any flags given are applied to every listing in the session.
+STATUS=0
+while true; do
+    printf '\nPaste the Zillow listing link (or press Enter to finish): '
+    read -r URL || break          # Ctrl-D
+    [ -z "$URL" ] && break
+    make_one "$URL" "$@"
+    STATUS=$?
+done
+
+echo
+echo "Finished."
 exit $STATUS
