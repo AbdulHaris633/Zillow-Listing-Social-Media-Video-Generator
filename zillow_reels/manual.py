@@ -401,9 +401,12 @@ def _review_photos(listing: Listing, cfg=None) -> None:
         in_video = min(in_video, len(listing.photos))
         # Laid out in columns: a gallery of 40+ printed one per line pushes the
         # prompt off screen, and the filename hashes it would show are noise.
+        card_index = getattr(cfg, "card_photo", 0) or 1
         cells = []
         for index, photo in enumerate(listing.photos, 1):
             mark = "▶" if index <= in_video else " "
+            if index == card_index:
+                mark = "★"          # the one the announcement card is built on
             label = photo.caption or (Path(photo.path).stem[:16] if photo.path else "")
             cells.append(f"{mark}{index:>3}. {label:<17}")
 
@@ -414,11 +417,12 @@ def _review_photos(listing: Listing, cfg=None) -> None:
             line = "".join(cells[row + c * rows] for c in range(columns) if row + c * rows < len(cells))
             print(f"   {line.rstrip()}")
         print(f"\n   ▶ = the {in_video} photo(s) in the video "
-              f"· {len(listing.photos)} saved in total")
+              f"· ★ = the announcement card"
+              f" · {len(listing.photos)} saved in total")
 
         choice = input(
             "\n   s = see them  ·  n 8 = how many  ·  k 1,5,3 = pick & order  ·  "
-            "d 2,4-6 = delete  ·  Enter = back: "
+            "c 7 = card photo  ·  d 2,4-6 = delete  ·  Enter = back: "
         ).strip()
 
         if not choice:
@@ -461,7 +465,17 @@ def _review_photos(listing: Listing, cfg=None) -> None:
             listing.photos = chosen + rest
             if cfg is not None:
                 cfg.max_photos = len(chosen)
+                # The number they picked pointed into the old order.
+                cfg.card_photo = 0
             print(f"   video will use {len(chosen)} photo(s), in the order you gave")
+
+        elif command == "c":
+            if not argument.isdigit() or not 1 <= int(argument) <= len(listing.photos):
+                print(f"   give a photo number, e.g. 'c 7' (1-{len(listing.photos)})")
+                continue
+            if cfg is not None:
+                cfg.card_photo = int(argument)
+            print(f"   the announcement card will use photo {argument}")
 
         elif command == "d":
             remove = set(parse_number_list(argument, len(listing.photos)))

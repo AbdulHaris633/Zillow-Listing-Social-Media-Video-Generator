@@ -59,6 +59,9 @@ class Config:
     crossfade_seconds: float = 0.45
     max_photos: int = 14        # photos used in the video
     max_downloads: int = 0      # photos saved to disk / Drive; 0 = the whole gallery
+    # Which photo the "JUST SOLD" card is built on, 1-based. 0 means the first,
+    # which is Zillow's own lead photo and usually the right one.
+    card_photo: int = 0
 
     # Ken Burns pan/zoom. Off by default: listing photos are dense with
     # high-frequency detail (siding, brick, shingles, grass) that crawls when

@@ -231,8 +231,13 @@ def run_one(options: RunOptions, cfg: Config) -> RunResult:
         from .cards import render_sold_card  # local: Pillow work, not always wanted
 
         card_path = workdir / f"{stem}-just-sold.jpg"
+        # 1-based and clamped: the operator picks against the numbered list in
+        # the review step, and a stale number should fall back to the lead
+        # photo rather than fail the run.
+        chosen = cfg.card_photo or 1
+        pick = (chosen if 1 <= chosen <= len(result.photo_paths) else 1) - 1
         try:
-            render_sold_card(listing, cfg, result.photo_paths[0]).save(
+            render_sold_card(listing, cfg, result.photo_paths[pick]).save(
                 card_path, quality=92, subsampling=0
             )
             result.card_path = card_path

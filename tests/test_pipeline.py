@@ -868,6 +868,56 @@ class TestSoldCard(unittest.TestCase):
     def test_reel_never_asks_for_one(self):
         self.assertFalse(RunOptions().sold_card)
 
+    def _card_from(self, tmp, card_photo):
+        """Run a sold pipeline over three flat-coloured photos, return the hero."""
+        import contextlib
+        import io
+
+        import zillow_reels.pipeline as pipeline_mod
+
+        colours = [(200, 60, 60), (60, 160, 80), (60, 90, 200)]
+        source = Path(tmp) / "src"
+        source.mkdir()
+        photos = []
+        for index, colour in enumerate(colours, 1):
+            path = source / f"{index:02d}.jpg"
+            Image.new("RGB", (1600, 1200), colour).save(path)
+            photos.append(Photo(path=path))
+
+        listing = Listing.from_dict(self.LISTING.to_dict())
+        listing.photos = photos
+        cfg = Config()
+        cfg.card_photo = card_photo
+
+        original = pipeline_mod.acquire
+        pipeline_mod.acquire = lambda o, c: (listing, [], False)
+        try:
+            with contextlib.redirect_stdout(io.StringIO()):
+                result = pipeline_mod.run_one(
+                    RunOptions(sold_card=True, skip_video=True, upload=False,
+                               required=("address",), verbose=False,
+                               workdir=Path(tmp) / "out"),
+                    cfg,
+                )
+        finally:
+            pipeline_mod.acquire = original
+        return Image.open(result.card_path).convert("RGB").getpixel((60, 700))
+
+    def test_the_chosen_photo_is_the_one_used(self):
+        for choice, expected in ((1, 200), (2, 60), (3, 60)):
+            with tempfile.TemporaryDirectory() as tmp:
+                red = self._card_from(tmp, choice)[0]
+                self.assertAlmostEqual(red, expected, delta=25, msg=f"card_photo={choice}")
+        # Photos 2 and 3 both have a low red channel; separate them on blue.
+        with tempfile.TemporaryDirectory() as tmp:
+            self.assertGreater(self._card_from(tmp, 3)[2], 150)
+        with tempfile.TemporaryDirectory() as tmp:
+            self.assertLess(self._card_from(tmp, 2)[2], 130)
+
+    def test_a_number_past_the_end_falls_back_to_the_lead_photo(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            self.assertGreater(self._card_from(tmp, 99)[0], 150)   # the red one
+
 
 class TestPhotoValidation(unittest.TestCase):
     """The size floor rejects thumbnails, not orientations.

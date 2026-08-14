@@ -66,6 +66,7 @@ def _config_from_args(args: argparse.Namespace) -> Config:
     for attr, field_name in (
         ("max_photos", "max_photos"),
         ("max_downloads", "max_downloads"),
+        ("card_photo", "card_photo"),
         ("photo_seconds", "photo_seconds"),
         ("zoom", "zoom"),
         ("crossfade", "crossfade_seconds"),
@@ -365,6 +366,8 @@ def build_parser() -> argparse.ArgumentParser:
     sold.add_argument("--review", action="store_true",
                       help="show the scraped data and let you edit it before uploading")
     _common_args(sold)
+    sold.add_argument("--card-photo", type=int, metavar="N",
+                      help="which photo the announcement card uses (1-based; default the first)")
     sold.add_argument("--no-card", action="store_true",
                       help="skip the 'JUST SOLD' announcement graphic")
     sold.set_defaults(func=cmd_sold)
