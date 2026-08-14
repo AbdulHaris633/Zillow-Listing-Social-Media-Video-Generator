@@ -16,7 +16,12 @@ from pathlib import Path
 
 from PIL import Image
 
-from zillow_reels.cards import render_units_cards
+from zillow_reels.cards import (
+    SOLD_CARD_SIZE,
+    render_sold_card,
+    render_units_cards,
+    sold_headline_location,
+)
 from zillow_reels.config import Config
 from zillow_reels.manual import details_text, load_manual, write_template
 from zillow_reels.pipeline import RunOptions, RunResult
@@ -815,6 +820,53 @@ class TestStableIdentity(unittest.TestCase):
         build, viewport = stable_identity("/proc/nonexistent-and-unwritable")
         self.assertTrue(build[0])
         self.assertIn("width", viewport)
+
+
+class TestSoldCard(unittest.TestCase):
+    """The 'JUST SOLD' graphic — the one piece of the archive meant to be posted."""
+
+    LISTING = Listing.from_dict({
+        "address": "2268 Homer Avenue, Bronx, NY 10473",
+        "price": 567000, "sold_date": "8/13/2026", "status": "RECENTLY_SOLD",
+    })
+
+    def _photo(self, tmp, size=(1600, 1200)):
+        path = Path(tmp) / "hero.jpg"
+        Image.new("RGB", size, (120, 140, 110)).save(path)
+        return path
+
+    def test_renders_at_the_portrait_size(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            card = render_sold_card(self.LISTING, Config(), self._photo(tmp))
+        self.assertEqual(card.size, SOLD_CARD_SIZE)
+        self.assertEqual(card.mode, "RGB")
+
+    def test_survives_a_landscape_and_a_portrait_hero(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            for size in [(1600, 1200), (900, 1600), (1080, 1080)]:
+                card = render_sold_card(self.LISTING, Config(), self._photo(tmp, size))
+                self.assertEqual(card.size, SOLD_CARD_SIZE)
+
+    def test_missing_fields_drop_their_line_rather_than_crashing(self):
+        bare = Listing.from_dict({"address": "9 Pine St, Bend, OR 97701"})
+        with tempfile.TemporaryDirectory() as tmp:
+            card = render_sold_card(bare, Config(), self._photo(tmp))
+        self.assertEqual(card.size, SOLD_CARD_SIZE)
+
+    def test_renders_without_a_photo_at_all(self):
+        card = render_sold_card(self.LISTING, Config(), None)
+        self.assertEqual(card.size, SOLD_CARD_SIZE)
+
+    def test_location_line_spells_the_state_out(self):
+        self.assertEqual(sold_headline_location(self.LISTING), "BRONX, NEW YORK")
+        self.assertEqual(
+            sold_headline_location(Listing.from_dict({"address": "1 A St, Reno, NV 89501"})),
+            "RENO, NEVADA",
+        )
+        self.assertEqual(sold_headline_location(Listing()), "")
+
+    def test_reel_never_asks_for_one(self):
+        self.assertFalse(RunOptions().sold_card)
 
 
 class TestPhotoValidation(unittest.TestCase):

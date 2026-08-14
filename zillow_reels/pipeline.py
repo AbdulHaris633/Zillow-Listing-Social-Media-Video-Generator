@@ -52,6 +52,9 @@ class RunOptions:
     # for-sale ones at a glance in Drive. `reel` leaves both alone.
     write_details: bool = False
     folder_prefix: str = ""
+    # The shareable "JUST SOLD" graphic. A sold run has no video, so this is
+    # the one piece of the archive meant to be posted rather than filed.
+    sold_card: bool = False
     # Sub-directory of `workdir` that this kind of run owns, so videos and
     # archived sales never land in the same listing folder. Empty writes
     # straight to `workdir`, which is what a bare pipeline call still does.
@@ -69,6 +72,7 @@ class RunResult:
     video_path: Path | None = None
     photo_paths: list[Path] = field(default_factory=list)
     details_path: Path | None = None
+    card_path: Path | None = None
     drive: dict = field(default_factory=dict)
     template_path: Path | None = None
     status: str = "ok"          # ok | needs_input | error
@@ -222,6 +226,21 @@ def run_one(options: RunOptions, cfg: Config) -> RunResult:
     listing.photos = photos or listing.photos
     result.photo_paths = [Path(p.path) for p in photos if p.path]
 
+    # --- announcement card -------------------------------------------------
+    if options.sold_card and result.photo_paths:
+        from .cards import render_sold_card  # local: Pillow work, not always wanted
+
+        card_path = workdir / f"{stem}-just-sold.jpg"
+        try:
+            render_sold_card(listing, cfg, result.photo_paths[0]).save(
+                card_path, quality=92, subsampling=0
+            )
+            result.card_path = card_path
+            log(f"  Made the announcement card -> {card_path}")
+        except Exception as exc:  # noqa: BLE001 - a card is not worth losing a run
+            result.messages.append(f"Could not build the sold card: {exc}")
+            log(f"  ! Could not build the sold card: {exc}")
+
     # --- video ------------------------------------------------------------
     if not options.skip_video:
         video_path = workdir / f"{stem}.mp4"
@@ -245,7 +264,7 @@ def run_one(options: RunOptions, cfg: Config) -> RunResult:
                 result.video_path,
                 result.photo_paths,
                 cfg,
-                extra_files=[result.details_path] if result.details_path else None,
+                extra_files=[p for p in (result.card_path, result.details_path) if p],
                 client_secrets=options.client_secrets or None,
                 parent_folder_id=options.parent_folder_id or None,
                 console=options.console_auth,

@@ -14,6 +14,7 @@ both looking deliberate instead of top-heavy.
 
 from __future__ import annotations
 
+import math
 from functools import lru_cache
 from pathlib import Path
 from typing import Callable
@@ -541,3 +542,234 @@ def render_caption_overlay(text: str, cfg: Config) -> Image.Image | None:
     draw.rectangle((box[0], box[1], box[0] + 6, box[3]), fill=(*hex_to_rgb(cfg.accent), 255))
     draw.text((box[0] + pad_x + 14, box[1] + pad_y - 2), label, font=font, fill=(*hex_to_rgb(cfg.text), 255))
     return layer
+
+
+# --------------------------------------------------------------------------
+# "Just Sold" announcement card — the sold archive's shareable graphic
+# --------------------------------------------------------------------------
+
+SOLD_CARD_SIZE = (1080, 1440)     # 3:4, the portrait crop social feeds keep whole
+SOLD_GOLD = "#BFA063"             # muted antique gold, not the brighter UI accent
+SOLD_NAVY = "#222E48"
+
+# A high-contrast serif carries the announcement, and a script softens the two
+# personal lines. Both fall back through platform equivalents, then to whatever
+# the config already resolved, so a Linux server still renders something sane.
+DISPLAY_SERIF_CANDIDATES = [
+    "/System/Library/Fonts/Supplemental/Didot.ttc",
+    "/System/Library/Fonts/Supplemental/Bodoni 72.ttc",
+    "/System/Library/Fonts/Supplemental/Baskerville.ttc",
+    "/System/Library/Fonts/Supplemental/Georgia.ttf",
+    "C:/Windows/Fonts/georgia.ttf",
+    "C:/Windows/Fonts/times.ttf",
+    "/usr/share/fonts/truetype/dejavu/DejaVuSerif.ttf",
+    "/usr/share/fonts/truetype/liberation/LiberationSerif-Regular.ttf",
+]
+SCRIPT_CANDIDATES = [
+    "/System/Library/Fonts/Supplemental/Snell Roundhand.ttc",
+    "/System/Library/Fonts/Supplemental/Apple Chancery.ttf",
+    "C:/Windows/Fonts/Gabriola.ttf",
+    "C:/Windows/Fonts/segoesc.ttf",
+    "/System/Library/Fonts/Supplemental/Georgia Italic.ttf",
+    "/usr/share/fonts/truetype/dejavu/DejaVuSerif-Italic.ttf",
+]
+
+STATE_NAMES = {
+    "AL": "Alabama", "AK": "Alaska", "AZ": "Arizona", "AR": "Arkansas",
+    "CA": "California", "CO": "Colorado", "CT": "Connecticut", "DE": "Delaware",
+    "DC": "Washington DC", "FL": "Florida", "GA": "Georgia", "HI": "Hawaii",
+    "ID": "Idaho", "IL": "Illinois", "IN": "Indiana", "IA": "Iowa",
+    "KS": "Kansas", "KY": "Kentucky", "LA": "Louisiana", "ME": "Maine",
+    "MD": "Maryland", "MA": "Massachusetts", "MI": "Michigan", "MN": "Minnesota",
+    "MS": "Mississippi", "MO": "Missouri", "MT": "Montana", "NE": "Nebraska",
+    "NV": "Nevada", "NH": "New Hampshire", "NJ": "New Jersey", "NM": "New Mexico",
+    "NY": "New York", "NC": "North Carolina", "ND": "North Dakota", "OH": "Ohio",
+    "OK": "Oklahoma", "OR": "Oregon", "PA": "Pennsylvania", "RI": "Rhode Island",
+    "SC": "South Carolina", "SD": "South Dakota", "TN": "Tennessee", "TX": "Texas",
+    "UT": "Utah", "VT": "Vermont", "VA": "Virginia", "WA": "Washington",
+    "WV": "West Virginia", "WI": "Wisconsin", "WY": "Wyoming",
+}
+
+
+def _first_existing(candidates: list[str]) -> str | None:
+    for path in candidates:
+        if Path(path).exists():
+            return path
+    return None
+
+
+def _tracked_width(draw, text: str, font, tracking: float) -> float:
+    """Width of `text` once each gap is opened up by `tracking` pixels."""
+    if not text:
+        return 0.0
+    return sum(draw.textlength(ch, font=font) for ch in text) + tracking * (len(text) - 1)
+
+
+def _draw_tracked(draw, center_x: float, y: float, text: str, font, fill, tracking: float) -> None:
+    """Centred text with letter-spacing, which Pillow has no native option for."""
+    x = center_x - _tracked_width(draw, text, font, tracking) / 2
+    for ch in text:
+        draw.text((x, y), ch, font=font, fill=fill)
+        x += draw.textlength(ch, font=font) + tracking
+
+
+def _fitted_font(draw, text: str, path: str | None, max_width: float,
+                 tracking: float, start: int, floor: int = 24):
+    """Largest size at which `text` still fits `max_width`, tracking included."""
+    size = start
+    while size > floor:
+        font = _font(path, size)
+        if _tracked_width(draw, text, font, tracking) <= max_width:
+            return font
+        size -= 2
+    return _font(path, floor)
+
+
+def _veil(size: tuple[int, int], colour: tuple[int, int, int],
+          alpha_top: int, alpha_bottom: int, power: float = 1.0) -> Image.Image:
+    """A vertical alpha ramp in one colour, for lifting text off a photo.
+
+    `power` above 1 holds the starting alpha longer before falling away, which
+    is what keeps a headline legible over a busy photo instead of fading out
+    halfway through the letters.
+    """
+    width, height = size
+    ramp = Image.new("L", (1, max(height, 1)))
+    for y in range(height):
+        t = y / (height - 1) if height > 1 else 0.0
+        eased = t ** power
+        ramp.putpixel((0, y), int(alpha_top + (alpha_bottom - alpha_top) * eased))
+    layer = Image.new("RGBA", size, (*colour, 255))
+    layer.putalpha(ramp.resize(size))
+    return layer
+
+
+def _draw_frond(draw, cx: float, cy: float, colour) -> None:
+    """A single palm frond, drawn rather than shipped as an asset.
+
+    Leaflets are many and fine rather than few and thick: a handful of heavy
+    strokes reads as stacked chevrons, not as a leaf.
+    """
+    tip = cy - 40
+    base = cy + 30
+    draw.line([(cx, base), (cx, tip)], fill=colour, width=2)
+    count = 14
+    for index in range(count):
+        t = index / (count - 1)
+        y = base - t * (base - tip)
+        # Widest a third of the way up, tapering to nothing at stem and tip.
+        # A constant shallow rise keeps it a leaf; letting it steepen with
+        # height closes the leaflets into an arrowhead instead.
+        length = 62 * math.sin(math.pi * (0.10 + 0.85 * t) ** 0.8) * (1 - 0.25 * t)
+        rise = length * 0.42
+        draw.line([(cx - 1, y), (cx - length, y - rise)], fill=colour, width=2)
+        draw.line([(cx + 1, y), (cx + length, y - rise)], fill=colour, width=2)
+
+
+def _draw_heart(draw, cx: float, cy: float, scale: float, colour, width: int = 3) -> None:
+    """Outline heart from the parametric curve — smooth at any size."""
+    points = []
+    steps = 90
+    for i in range(steps + 1):
+        t = 2 * math.pi * i / steps
+        x = 16 * math.sin(t) ** 3
+        y = 13 * math.cos(t) - 5 * math.cos(2 * t) - 2 * math.cos(3 * t) - math.cos(4 * t)
+        points.append((cx + x * scale, cy - y * scale))
+    draw.line(points, fill=colour, width=width, joint="curve")
+
+
+def sold_headline_location(listing: Listing) -> str:
+    """'BRONX, NEW YORK' — the place, spelled out, or nothing at all."""
+    city = (listing.city or "").strip()
+    state = STATE_NAMES.get((listing.state or "").strip().upper(), (listing.state or "").strip())
+    parts = [p for p in (city, state) if p]
+    return ", ".join(parts).upper()
+
+
+def render_sold_card(listing: Listing, cfg: Config, photo_path: str | Path | None) -> Image.Image:
+    """The 'JUST SOLD' announcement: the house, the date, what it went for.
+
+    A sold listing gets no video, so this is the one thing from the archive
+    that is meant to be *posted* rather than filed. Everything on it comes
+    from the scrape, and any field that is missing simply leaves its line out
+    rather than printing a placeholder.
+    """
+    width, height = SOLD_CARD_SIZE
+    gold = hex_to_rgb(SOLD_GOLD)
+    navy = hex_to_rgb(SOLD_NAVY)
+    white = (255, 255, 255)
+
+    if photo_path and Path(photo_path).exists():
+        canvas = fit_cover(open_photo(photo_path), SOLD_CARD_SIZE)
+    else:
+        canvas = Image.new("RGB", SOLD_CARD_SIZE, hex_to_rgb(cfg.background))
+    canvas = canvas.convert("RGBA")
+
+    # Lift the type off the photograph: a bright wash under the headline, a
+    # gentler shade under the closing details.
+    top_h = int(height * 0.42)
+    canvas.alpha_composite(_veil((width, top_h), white, 248, 0, power=2.1), (0, 0))
+    bottom_h = int(height * 0.52)
+    canvas.alpha_composite(
+        _veil((width, bottom_h), (8, 12, 24), 0, 195, power=0.55), (0, height - bottom_h)
+    )
+
+    draw = ImageDraw.Draw(canvas)
+    serif = _first_existing(DISPLAY_SERIF_CANDIDATES) or cfg.resolved_font(bold=True)
+    script = _first_existing(SCRIPT_CANDIDATES) or serif
+    margin = 70
+    inner = width - 2 * margin
+    cx = width / 2
+
+    # --- headline -------------------------------------------------------
+    _draw_frond(draw, cx, 92, gold)
+
+    title_font = _fitted_font(draw, "JUST SOLD", serif, inner * 0.97, 6, start=190)
+    _draw_tracked(draw, cx, 128, "JUST SOLD", title_font, gold, 6)
+    title_bottom = 128 + title_font.size * 1.02
+
+    place = sold_headline_location(listing)
+    if place:
+        place_font = _fitted_font(draw, place, serif, inner * 0.66, 10, start=42)
+        place_w = _tracked_width(draw, place, place_font, 10)
+        y = title_bottom + 26
+        _draw_tracked(draw, cx, y, place, place_font, gold, 10)
+        rule_y = y + place_font.size * 0.62
+        gap = place_w / 2 + 34
+        draw.line([(cx - gap - 150, rule_y), (cx - gap, rule_y)], fill=gold, width=3)
+        draw.line([(cx + gap, rule_y), (cx + gap + 150, rule_y)], fill=gold, width=3)
+
+    # --- closing details, stacked upward from the base -------------------
+    y = height - 74
+    _draw_heart(draw, cx, y, 1.5, gold, width=3)
+
+    y -= 52
+    congrats_font = _font(script, 86)
+    congrats_w = draw.textlength("Congrats!", font=congrats_font)
+    draw.text((cx - congrats_w / 2, y - 86), "Congrats!", font=congrats_font, fill=white)
+    y -= 104
+
+    price = listing.price_display
+    if price:
+        price_font = _fitted_font(draw, price, serif, inner - 150, 2, start=110)
+        price_w = _tracked_width(draw, price, price_font, 2)
+        box_h = int(price_font.size * 1.5)
+        box_w = int(min(inner, price_w + 130))
+        box = (cx - box_w / 2, y - box_h, cx + box_w / 2, y)
+        draw.rounded_rectangle(box, radius=8, fill=(*navy, 235))
+        draw.rounded_rectangle((box[0] + 9, box[1] + 9, box[2] - 9, box[3] - 9),
+                               radius=5, outline=gold, width=3)
+        _draw_tracked(draw, cx, y - box_h + (box_h - price_font.size * 1.18) / 2,
+                      price, price_font, white, 2)
+        y -= box_h + 30
+
+    if listing.sold_date:
+        date_font = _font(serif, 46)
+        _draw_tracked(draw, cx, y - 52, listing.sold_date, date_font, white, 9)
+        y -= 74
+
+    sold_font = _font(script, 92)
+    sold_w = draw.textlength("Sold", font=sold_font)
+    draw.text((cx - sold_w / 2, y - 96), "Sold", font=sold_font, fill=white)
+
+    return canvas.convert("RGB")

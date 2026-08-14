@@ -129,6 +129,8 @@ def _report(result: RunResult) -> None:
     if result.video_path:
         print(f"    {'video:':<9}{result.video_path}")
     print(f"    {'photos:':<9}{len(result.photo_paths)}")
+    if result.card_path:
+        print(f"    {'card:':<9}{result.card_path}")
     if result.details_path:
         print(f"    {'details:':<9}{result.details_path}")
     if result.drive.get("folder_url"):
@@ -175,6 +177,7 @@ def cmd_sold(args: argparse.Namespace) -> int:
     options.write_details = True
     options.folder_prefix = "Sold"
     options.bucket = "sold"
+    options.sold_card = not getattr(args, "no_card", False)
 
     print(f"\nZillow Reels {__version__} — sold listing")
     print(f"  Source: {args.url or args.manual or args.from_html}")
@@ -362,6 +365,8 @@ def build_parser() -> argparse.ArgumentParser:
     sold.add_argument("--review", action="store_true",
                       help="show the scraped data and let you edit it before uploading")
     _common_args(sold)
+    sold.add_argument("--no-card", action="store_true",
+                      help="skip the 'JUST SOLD' announcement graphic")
     sold.set_defaults(func=cmd_sold)
 
     batch = sub.add_parser("batch", help="process a CSV of listings")
